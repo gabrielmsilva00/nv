@@ -2,6 +2,15 @@
 
 `nv` is a smart wrapper for [lsd](https://github.com/lsd-rs/lsd) and `cd` that provides a cleaner, more structured view of your directories. It automatically balances the density of information displayed by capping sub-entries based on the contents of the current folder, ensuring you get a quick overview without being overwhelmed.
 
+![Example of nv in action](example.webp)
+
+It allows you to simultaneously navigate and list files in a tree-view format as you move through directories.
+
+##### TLDR Install & Upgrade command:
+```bash
+curl -fsSL https://raw.githubusercontent.com/gabrielmsilva00/nv/main/nv | bash -s -- --self-install
+```
+
 ## Features
 
 - **Smart Tree View**: Automatically limits deep directory listings to prevent terminal flooding.
