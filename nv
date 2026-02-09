@@ -345,7 +345,6 @@ run_nv() {
                 (( s_count > s_lim )) && echo "${sub_prefix}└── ..."
             fi
         else
-        else
             safe_print "$connector" "$("${cmd[@]}" -d -- "$entry")"
         fi
     done
