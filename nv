@@ -1,0 +1,328 @@
+#!/usr/bin/env bash
+# nv - File navigation wrapper for lsd (https://github.com/gabrielmsilva00/nv)
+VERSION="1.0.0"
+REPO="gabrielmsilva00/nv"
+LICENSE="Apache-2.0"
+MAINTAINERS=("Gabriel Silva (@gabrielmsilva00)")
+
+BOLD=$(tput bold 2>/dev/null) || BOLD=""
+RESET=$(tput sgr0 2>/dev/null) || RESET=""
+RED=$(tput setaf 1 2>/dev/null) || RED=""
+GREEN=$(tput setaf 2 2>/dev/null) || GREEN=""
+YELLOW=$(tput setaf 3 2>/dev/null) || YELLOW=""
+BLUE=$(tput setaf 4 2>/dev/null) || BLUE=""
+WHITE=$(tput setaf 7 2>/dev/null) || WHITE=""
+
+NV_URL="https://raw.githubusercontent.com/${REPO}/main/nv"
+
+self_install() {
+    local install_mode=""
+    local need_sudo=false
+    local install_dir=""
+    local missing_deps=()
+
+    for arg in "$@"; do
+        case "$arg" in
+            --root|--usr|--local)
+                [[ -n "$install_mode" ]] && { echo "${RED}Error: Only one of --root, --usr, --local allowed${RESET}"; exit 1; }
+                install_mode="${arg#--}"
+                ;;
+            -h|--help)
+                echo "nv self-installer v${VERSION}"
+                echo "Usage: curl -fsSL <url>/nv | bash -s -- --self-install [OPTIONS]"
+                echo "       nv --self-install [--local | --usr | --root]"
+                echo ""
+                echo "Options:"
+                echo "  --local  Install to ~/.local/bin (default)"
+                echo "  --usr    Install to /usr/local/bin (requires sudo)"
+                echo "  --root   Install to /root/.local/bin (requires sudo)"
+                exit 0
+                ;;
+        esac
+    done
+
+    case "${install_mode:-local}" in
+        local) install_dir="$HOME/.local/bin" ;;
+        usr)   install_dir="/usr/local/bin"; need_sudo=true ;;
+        root)  install_dir="/root/.local/bin"; need_sudo=true ;;
+    esac
+
+    echo "${BOLD}${BLUE}nv installer${RESET}"
+    echo "${BLUE}Target:${RESET}     $install_dir"
+    echo "${BLUE}Repo:${RESET}       https://github.com/$REPO"
+    echo "${BLUE}Devs:${RESET}       ${MAINTAINERS[*]}"
+    echo "${BLUE}License:${RESET}    $LICENSE"
+    echo
+
+    existing_nv=$(command -v nv 2>/dev/null) || true
+    if [[ -n "$existing_nv" ]]; then
+        if grep -q "github.com/gabrielmsilva00/nv" "$existing_nv" 2>/dev/null; then
+            local current_ver
+            current_ver=$(grep "^VERSION=" "$existing_nv" 2>/dev/null | head -n 1 | cut -d'"' -f2)
+            current_ver="${current_ver:-?}"
+            if [[ "$current_ver" == "$VERSION" ]]; then
+                echo -n "nv v${VERSION} is already installed. Reinstall? [y/N] "
+                local response
+                if [[ -c /dev/tty ]]; then
+                    read -r -n 1 response < /dev/tty
+                else
+                    read -r -n 1 response 2>/dev/null || response="n"
+                fi
+
+                if [[ ! "$response" =~ ^[yY]$ ]]; then
+                    echo
+                    exit 0
+                fi
+                echo
+                echo "${WHITE}→${RESET} Reinstalling v${VERSION}..."
+            else
+                echo "${WHITE}→${RESET} Updating nv v${current_ver} to v${VERSION}"
+            fi
+        else
+            echo "${YELLOW}⚠${RESET} Different 'nv' found: $existing_nv"
+            echo "  Will install to: $install_dir/nv"
+        fi
+        echo
+    fi
+
+    command -v curl &>/dev/null && echo "${GREEN}✓${RESET} curl" || { echo "${RED}✗${RESET} curl (required)"; missing_deps+=("curl"); }
+    command -v lsd &>/dev/null && echo "${GREEN}✓${RESET} lsd" || { echo "${RED}✗${RESET} lsd (required)"; missing_deps+=("lsd"); }
+
+    if [[ ${#missing_deps[@]} -gt 0 ]]; then
+        echo
+        echo "${RED}Missing dependencies:${RESET} ${missing_deps[*]}"
+        echo "Please install them and re-run the installer."
+        exit 1
+    fi
+
+    echo
+
+    local tmpfile
+    tmpfile=$(mktemp)
+    if ! curl -fsSL -H "Cache-Control: no-cache" "$NV_URL" -o "$tmpfile"; then
+        echo "${RED}Download failed${RESET}"
+        rm -f "$tmpfile"
+        exit 1
+    fi
+
+    if [[ ! -s "$tmpfile" ]] || ! grep -q "github.com/gabrielmsilva00/nv" "$tmpfile"; then
+        echo "${RED}Download invalid or corrupted${RESET}"
+        rm -f "$tmpfile"
+        exit 1
+    fi
+
+    local install_success=false
+
+    if [[ "$need_sudo" == true ]]; then
+        echo "${WHITE}→${RESET} Attempting install with sudo..."
+        if sudo mkdir -p "$install_dir" 2>/dev/null && \
+           sudo cp "$tmpfile" "$install_dir/nv" 2>/dev/null && \
+           sudo chmod +x "$install_dir/nv" 2>/dev/null; then
+            install_success=true
+        else
+            echo "${YELLOW}⚠${RESET} Sudo failed, trying without sudo..."
+            need_sudo=false
+        fi
+    fi
+
+    if [[ "$install_success" == false ]]; then
+        if mkdir -p "$install_dir" 2>/dev/null && \
+           mv "$tmpfile" "$install_dir/nv" 2>/dev/null && \
+           chmod +x "$install_dir/nv" 2>/dev/null; then
+            install_success=true
+        fi
+    fi
+
+    rm -f "$tmpfile" 2>/dev/null
+
+    if [[ "$install_success" == false ]]; then
+        echo "${RED}✗ Installation failed${RESET}"
+        echo "  Could not write to: $install_dir"
+        echo "  Try: nv --self-install --local"
+        exit 1
+    fi
+
+    echo "${GREEN}✓${RESET} nv v${VERSION} installed to $install_dir/nv"
+
+    if [[ "$need_sudo" == false && ":$PATH:" != *":$install_dir:"* ]]; then
+        local shell_name shell_rc
+        shell_name=$(basename "$SHELL")
+        case "$shell_name" in
+            zsh)  shell_rc="$HOME/.zshrc" ;;
+            bash) shell_rc="$HOME/.bashrc" ;;
+            *)    shell_rc="$HOME/.profile" ;;
+        esac
+
+        local export_line="export PATH=\"\$PATH:$install_dir\""
+        if ! grep -qF "$install_dir" "$shell_rc" 2>/dev/null; then
+            echo "" >> "$shell_rc"
+            echo "# nv" >> "$shell_rc"
+            echo "$export_line" >> "$shell_rc"
+            echo "${GREEN}✓${RESET} Added to PATH in $shell_rc"
+            echo "${YELLOW}!${RESET} Run: source $shell_rc"
+        fi
+    fi
+
+    echo -e "\n${GREEN}Done!${RESET} Run: nv"
+    exit 0
+}
+
+perform_self_upgrade() {
+    echo "Checking for updates..."
+    local tmpfile
+    tmpfile=$(mktemp)
+    if ! curl -fsSL -H "Cache-Control: no-cache" "$NV_URL" -o "$tmpfile"; then
+        echo "${RED}Download failed${RESET}"
+        rm -f "$tmpfile"
+        exit 1
+    fi
+
+    if [[ ! -s "$tmpfile" ]] || ! grep -q "github.com/gabrielmsilva00/nv" "$tmpfile"; then
+        echo "${RED}Download invalid or corrupted${RESET}"
+        rm -f "$tmpfile"
+        exit 1
+    fi
+
+    local new_ver
+    new_ver=$(grep "^VERSION=" "$tmpfile" | head -n 1 | cut -d'"' -f2)
+    
+    if [[ "$new_ver" == "$VERSION" ]]; then
+         echo "You are already on the latest version v${VERSION}."
+         rm -f "$tmpfile"
+         exit 0
+    fi
+    
+    echo "New version available: $new_ver (Current: $VERSION)"
+    echo "Upgrading..."
+    
+    local install_arg="--local"
+    local current_loc
+    current_loc=$(command -v nv 2>/dev/null)
+    
+    if [[ "$current_loc" == "/usr/local/bin/nv" ]]; then
+        install_arg="--usr"
+    elif [[ "$current_loc" == "/root/.local/bin/nv" ]]; then
+        install_arg="--root"
+    fi
+    
+    chmod +x "$tmpfile"
+    "$tmpfile" --self-install "$install_arg"
+    local ret=$?
+    rm -f "$tmpfile"
+    exit $ret
+}
+
+# Check for install flags
+if [[ "$1" == "--self-install" ]]; then
+    self_install "${@:2}"
+    exit 0
+fi
+
+if [[ "$1" == "--self-upgrade" ]]; then
+    perform_self_upgrade
+    exit 0
+fi
+
+run_nv() {
+    local dot=0 full=0 depth=2 args=()
+    
+    usage() {
+        echo "Usage: nv [options] [directory]"
+        echo "Options:"
+        echo "  -h,  --help      Display this help message"
+        echo "  -dt, --dotfiles  Include hidden files"
+        echo "  -f,  --full      Disable all item capping"
+        echo "  -t,  --depth N   Set tree recursion depth (Default: 2)"
+        echo "  --self-upgrade   Fetch and install the latest version"
+        echo "  --self-install   Install nv (used by curl installer)"
+        return 0
+    }
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -h|--help) usage; return 0 ;;
+            -dt|--dotfiles) dot=1; shift ;;
+            -f|--full) full=1; shift ;;
+            -t|--depth) 
+                if [[ "$2" =~ ^[0-9]+$ ]]; then
+                    depth=$2; shift
+                fi
+                shift 
+                ;;
+            *) args+=("$1"); shift ;;
+        esac
+    done
+    
+    if [[ ${#args[@]} -gt 0 ]]; then
+        cd "${args[@]}" || return
+    fi
+    
+    # Get items in current dir
+    local items=()
+    shopt -s nullglob
+    [[ $dot -eq 1 ]] && shopt -s dotglob
+    items=( * )
+    shopt -u dotglob
+    shopt -u nullglob
+    
+    local m_count=${#items[@]}
+    
+    # Proportional sub-entry limit: S = clamp(12 - M/2, 2, 10)
+    local s_lim=$(( 12 - (m_count / 2) ))
+    (( s_lim < 2 )) && s_lim=2
+    (( s_lim > 10 )) && s_lim=10
+    
+    local cmd=("lsd" "--group-directories-first" "--color=always" "--icon=always")
+    
+    # Root: user basename
+    "${cmd[@]}" -d "../$(basename "$PWD")"
+    
+    if [[ $full -eq 1 ]]; then
+        "${cmd[@]}" --tree --depth "$depth" | sed '1d'
+        return
+    fi
+    
+    # Level 1 iteration
+    for ((i=0; i<m_count; i++)); do
+        local entry="${items[$i]}"
+        local is_last_main=0; [[ $i -eq $((m_count - 1)) ]] && is_last_main=1
+        
+        local connector="├── "
+        local sub_prefix="│   "
+        [[ $is_last_main -eq 1 ]] && { connector="└── "; sub_prefix="    "; }
+        
+        if [[ -d "$entry" ]]; then
+            "${cmd[@]}" -d -- "$entry" | sed "s/^/$connector/"
+            
+            # Level 2+: Proportionally capped sub-entries
+            local subs=()
+            shopt -s nullglob
+            [[ $dot -eq 1 ]] && shopt -s dotglob
+            subs=( "$entry"/* )
+            shopt -u dotglob
+            shopt -u nullglob
+            
+            # Limit subs to first (s_lim + 1) items
+            local limit=$((s_lim + 1))
+            local s_count=${#subs[@]}
+            
+            if (( s_count > 0 )); then
+                local display_count=$s_lim
+                (( s_count < s_lim )) && display_count=$s_count
+                
+                for ((j=0; j<display_count; j++)); do
+                    local sub_conn="├── "
+                    if [[ $j -eq $((display_count - 1)) && $s_count -le $s_lim ]]; then
+                        sub_conn="└── "
+                    fi
+                    "${cmd[@]}" -d -- "${subs[$j]}" | sed "s/^/$sub_prefix$sub_conn/"
+                done
+                (( s_count > s_lim )) && echo "${sub_prefix}└── ..."
+            fi
+        else
+            "${cmd[@]}" -d -- "$entry" | sed "s/^/$connector/"
+        fi
+    done
+}
+
+run_nv "$@"
