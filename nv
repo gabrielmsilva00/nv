@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # nv - File navigation wrapper for lsd (https://github.com/gabrielmsilva00/nv)
-VERSION="0.0.7"
+VERSION="0.1.0"
 REPO="gabrielmsilva00/nv"
 LICENSE="Apache-2.0"
 MAINTAINERS=("Gabriel Silva (@gabrielmsilva00)")
@@ -93,7 +93,108 @@ self_install() {
     rm -f "$tmpfile" 2>/dev/null
     echo "${GREEN}✓${RESET} nv v${VERSION} installed to $install_dir/nv"
     [[ ":$PATH:" != *":$install_dir:"* ]] && echo "${YELLOW}⚠${RESET} $install_dir is not in your PATH."
-    echo -e "\n${GREEN}Done!${RESET} Run: nv"
+    
+    # Shell Configuration Step
+    configure_shells "$install_dir/nv"
+
+    echo -e "\n${GREEN}Done!${RESET} If you configured shells, restart them or run 'source <rcfile>'."
+}
+
+configure_shells() {
+    local nv_path="$1"
+    local shell_names=("Bash" "Zsh" "Fish" "Dash")
+    local shell_rcs=("$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.config/fish/config.fish" "$HOME/.profile")
+    local detected_indices=()
+    local selected=()
+    
+    echo -e "\n${BOLD}${BLUE}Shell Configuration${RESET}"
+    echo "To use 'nv' for navigation (changing directories), you must add an alias/function to your shell."
+    echo "Examples:"
+    echo "  ${WHITE}Bash/Zsh:${RESET} alias nv=\"source $nv_path\""
+    echo "  ${WHITE}Fish:${RESET}     function nv; source \"$nv_path\" \$argv; end"
+    echo
+    echo "Which shells would you like to configure automatically?"
+    
+    # Detect shells
+    for i in "${!shell_rcs[@]}"; do
+        if [[ -f "${shell_rcs[$i]}" ]]; then
+            detected_indices+=("$i")
+            selected+=("true")  # Select valid shells by default
+        else
+            selected+=("false")
+        fi
+    done
+    
+    if [[ ${#detected_indices[@]} -eq 0 ]]; then
+        echo "${YELLOW}No common shell configuration files found.${RESET}"
+        return
+    fi
+    
+    # Interaction Loop
+    while true; do
+        echo
+        for idx in "${detected_indices[@]}"; do
+            local mark=" "
+            [[ "${selected[$idx]}" == "true" ]] && mark="x"
+            echo "  [${mark}] $((idx+1))) ${shell_names[$idx]} (${shell_rcs[$idx]})"
+        done
+        echo
+        echo -n "Select shells to toggle (e.g. '1 2'), 'a' for all, or 'enter' to confirm: "
+        read -r input
+        
+        if [[ -z "$input" ]]; then
+            break 
+        elif [[ "$input" == "a" ]]; then
+            for idx in "${detected_indices[@]}"; do selected[$idx]="true"; done
+        else
+            for num in $input; do
+                if [[ "$num" =~ ^[0-9]+$ ]] && (( num >= 1 && num <= ${#shell_names[@]} )); then
+                    local real_idx=$((num-1))
+                    # Toggle logic
+                    if [[ "${selected[$real_idx]}" == "true" ]]; then
+                        selected[$real_idx]="false"
+                    else
+                        # Only toggle ON if file exists
+                         if [[ -f "${shell_rcs[$real_idx]}" ]]; then
+                            selected[$real_idx]="true"
+                         fi
+                    fi
+                fi
+            done
+        fi
+    done
+    
+    # Apply Configuration
+    local configured_any=false
+    for idx in "${!shell_rcs[@]}"; do
+        if [[ "${selected[$idx]}" == "true" ]]; then
+            local rc_file="${shell_rcs[$idx]}"
+            local shell_name="${shell_names[$idx]}"
+            
+            echo -n "Configuring $shell_name... "
+            
+            # Check if already configured
+            if grep -q "alias nv=" "$rc_file" 2>/dev/null || grep -q "function nv" "$rc_file" 2>/dev/null; then
+                 echo "${YELLOW}Skipped (already configured)${RESET}"
+                 continue
+            fi
+            
+            # Append configuration
+            if [[ "$shell_name" == "Fish" ]]; then
+                echo -e "\n# nv navigation wrapper\nfunction nv; source \"$nv_path\" \$argv; end" >> "$rc_file"
+            else
+                echo -e "\n# nv navigation wrapper\nalias nv=\"source $nv_path\"" >> "$rc_file"
+            fi
+            echo "${GREEN}✓${RESET}"
+            configured_any=true
+        fi
+    done
+    
+    if [[ "$configured_any" == false ]]; then
+        echo
+        echo "${YELLOW}⚠ Warning: No shells configured.${RESET}"
+        echo "You will NOT be able to change directories with 'nv' unless you manually add the alias."
+    fi
 }
 
 perform_self_upgrade() {
@@ -265,14 +366,6 @@ esac
 if [ "$sourced" -eq 1 ]; then
     run_nv "$@"
 else
-    # Capture start directory to detect navigation
-    start_dir="$PWD"
-
+    # Run in sub-process (will not affect parent shell PWD)
     run_nv "$@"
-
-    # If directory changed, spawn new shell to persist it
-    if [[ "$PWD" != "$start_dir" ]]; then
-        echo "${YELLOW}Entering subshell to persist navigation. Type 'exit' to return.${RESET}"
-        exec "${SHELL:-/bin/bash}"
-    fi
 fi
