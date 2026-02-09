@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # nv - File navigation wrapper for lsd (https://github.com/gabrielmsilva00/nv)
-VERSION="0.1.5"
+VERSION="0.1.6"
 REPO="gabrielmsilva00/nv"
 MAINTAINERS=("Gabriel Silva (@gabrielmsilva00)")
 NV_URL="https://raw.githubusercontent.com/${REPO}/main/nv"
@@ -338,7 +338,9 @@ run_nv() {
         shift
     done
     
-    [[ ${#args[@]} -gt 0 ]] && cd "${args[@]}" || return
+    if [[ ${#args[@]} -gt 0 ]]; then
+        cd "${args[@]}" || return
+    fi
     
     local cols
     cols=$(tput cols 2>/dev/null) || cols=80
