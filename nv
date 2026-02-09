@@ -144,14 +144,11 @@ self_install() {
 
     echo "${GREEN}✓${RESET} nv v${VERSION} installed to $install_dir/nv"
 
-    if [[ "$need_sudo" == false && ":$PATH:" != *":$install_dir:"* ]]; then
-        echo "${YELLOW}⚠${RESET} $install_dir is not in your PATH."
-        echo "  Add it to your shell configuration file manually."
+    if [[ ":$PATH:" != *":$install_dir:"* ]]; then
+        echo "${YELLOW}⚠${RESET} Note: $install_dir is not currently in your PATH."
     fi
 
-    echo -e "\n${GREEN}Done!${RESET}"
-    echo "To enable persistent navigation, add this to your shell config:"
-    echo "  ${BLUE}eval \"\$(nv --init)\"${RESET}"
+    echo -e "\n${GREEN}Done!${RESET} Run: nv"
     exit 0
 }
 
@@ -223,29 +220,12 @@ run_nv() {
         echo "  -t,  --depth N   Set tree recursion depth (Default: 2)"
         echo "  --self-upgrade   Fetch and install the latest version"
         echo "  --self-install   Install nv (used by curl installer)"
-        echo "  --init           Print shell integration code"
         return 0
     }
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -h|--help) usage; return 0 ;;
-            --init)
-                echo 'nv() {'
-                echo '    local tmp=$(mktemp)'
-                echo '    NV_DST="$tmp" command nv "$@"'
-                echo '    local ret=$?'
-                echo '    if [ -f "$tmp" ]; then'
-                echo '        local dir=$(cat "$tmp")'
-                echo '        rm -f "$tmp"'
-                echo '        if [ -d "$dir" ] && [ "$dir" != "$PWD" ]; then'
-                echo '            builtin cd "$dir"'
-                echo '        fi'
-                echo '    fi'
-                echo '    return $ret'
-                echo '}'
-                return 0
-                ;;
             -dt|--dotfiles) dot=1; shift ;;
             -f|--full) full=1; shift ;;
             -t|--depth) 
@@ -261,9 +241,6 @@ run_nv() {
     if [[ ${#args[@]} -gt 0 ]]; then
         cd "${args[@]}" || return
     fi
-    
-    # Notify wrapper of directory change
-    [[ -n "$NV_DST" ]] && pwd > "$NV_DST"
     
     # Get items in current dir
     local items=()
@@ -333,4 +310,20 @@ run_nv() {
     done
 }
 
-run_nv "$@"
+# Main Execution Logic
+(return 0 2>/dev/null) && sourced=1 || sourced=0
+
+if [ "$sourced" -eq 1 ]; then
+    run_nv "$@"
+else
+    # Capture start directory
+    start_dir="$PWD"
+    
+    # Run the core logic
+    run_nv "$@"
+    
+    # If the directory changed, spawn a new shell to inhibit the change
+    if [[ "$PWD" != "$start_dir" ]]; then
+        exec "${SHELL:-/bin/bash}"
+    fi
+fi
