@@ -4,7 +4,9 @@ VERSION="0.0.5"
 REPO="gabrielmsilva00/nv"
 LICENSE="Apache-2.0"
 MAINTAINERS=("Gabriel Silva (@gabrielmsilva00)")
+NV_URL="https://raw.githubusercontent.com/${REPO}/main/nv"
 
+# --- Colors & formatting ---
 BOLD=$(tput bold 2>/dev/null) || BOLD=""
 RESET=$(tput sgr0 2>/dev/null) || RESET=""
 RED=$(tput setaf 1 2>/dev/null) || RED=""
@@ -12,167 +14,103 @@ GREEN=$(tput setaf 2 2>/dev/null) || GREEN=""
 YELLOW=$(tput setaf 3 2>/dev/null) || YELLOW=""
 BLUE=$(tput setaf 4 2>/dev/null) || BLUE=""
 WHITE=$(tput setaf 7 2>/dev/null) || WHITE=""
+ESC=$(printf '\033')
 
-NV_URL="https://raw.githubusercontent.com/${REPO}/main/nv"
+# --- Installer Functions ---
 
 self_install() {
-    local install_mode=""
+    local install_mode="local"
     local need_sudo=false
-    local install_dir=""
+    local install_dir="$HOME/.local/bin"
     local missing_deps=()
 
     for arg in "$@"; do
         case "$arg" in
-            --root|--usr|--local)
-                [[ -n "$install_mode" ]] && { echo "${RED}Error: Only one of --root, --usr, --local allowed${RESET}"; exit 1; }
-                install_mode="${arg#--}"
-                ;;
+            --root)  install_mode="root"; install_dir="/root/.local/bin"; need_sudo=true ;;
+            --usr)   install_mode="usr";  install_dir="/usr/local/bin";   need_sudo=true ;;
+            --local) install_mode="local"; install_dir="$HOME/.local/bin"; need_sudo=false ;;
             -h|--help)
                 echo "nv self-installer v${VERSION}"
-                echo "Usage: curl -fsSL <url>/nv | bash -s -- --self-install [OPTIONS]"
-                echo "       nv --self-install [--local | --usr | --root]"
-                echo ""
-                echo "Options:"
-                echo "  --local  Install to ~/.local/bin (default)"
-                echo "  --usr    Install to /usr/local/bin (requires sudo)"
-                echo "  --root   Install to /root/.local/bin (requires sudo)"
+                echo "Usage: nv --self-install [--local | --usr | --root]"
                 exit 0
                 ;;
         esac
     done
 
-    case "${install_mode:-local}" in
-        local) install_dir="$HOME/.local/bin" ;;
-        usr)   install_dir="/usr/local/bin"; need_sudo=true ;;
-        root)  install_dir="/root/.local/bin"; need_sudo=true ;;
-    esac
-
     echo "${BOLD}${BLUE}nv installer${RESET}"
-    echo "${BLUE}Target:${RESET}     $install_dir"
-    echo "${BLUE}Repo:${RESET}       https://github.com/$REPO"
-    echo "${BLUE}Devs:${RESET}       ${MAINTAINERS[*]}"
-    echo "${BLUE}License:${RESET}    $LICENSE"
-    echo
-
-    existing_nv=$(command -v nv 2>/dev/null) || true
+    echo "Target:  $install_dir"
+    echo "Repo:    https://github.com/$REPO"
+    
+    # Check for existing installation
+    local existing_nv
+    existing_nv=$(command -v nv 2>/dev/null)
     if [[ -n "$existing_nv" ]]; then
-        if grep -q "github.com/gabrielmsilva00/nv" "$existing_nv" 2>/dev/null; then
+        if grep -q "$REPO" "$existing_nv" 2>/dev/null; then
             local current_ver
-            current_ver=$(grep "^VERSION=" "$existing_nv" 2>/dev/null | head -n 1 | cut -d'"' -f2)
-            current_ver="${current_ver:-?}"
-            if [[ "$current_ver" == "$VERSION" ]]; then
+            current_ver=$(grep "^VERSION=" "$existing_nv" 2>/dev/null | cut -d'"' -f2 || echo "?")
+            [[ "$current_ver" == "$VERSION" ]] && {
                 echo -n "nv v${VERSION} is already installed. Reinstall? [y/N] "
-                local response
-                if [[ -c /dev/tty ]]; then
-                    read -r -n 1 response < /dev/tty
-                else
-                    read -r -n 1 response 2>/dev/null || response="n"
-                fi
-
-                if [[ ! "$response" =~ ^[yY]$ ]]; then
-                    echo
-                    exit 0
-                fi
-                echo
-                echo "${WHITE}→${RESET} Reinstalling v${VERSION}..."
-            else
-                echo "${WHITE}→${RESET} Updating nv v${current_ver} to v${VERSION}"
-            fi
+                read -r -n 1 response 2>/dev/null || response="n"
+                [[ ! "$response" =~ ^[yY]$ ]] && { echo; exit 0; }
+                echo -e "\n${WHITE}→${RESET} Reinstalling v${VERSION}..."
+            } || echo "${WHITE}→${RESET} Updating nv v${current_ver} to v${VERSION}"
         else
-            echo "${YELLOW}⚠${RESET} Different 'nv' found: $existing_nv"
-            echo "  Will install to: $install_dir/nv"
+            echo "${YELLOW}⚠${RESET} Different 'nv' found at $existing_nv. Installing to $install_dir/nv"
         fi
         echo
     fi
 
-    command -v curl &>/dev/null && echo "${GREEN}✓${RESET} curl" || { echo "${RED}✗${RESET} curl (required)"; missing_deps+=("curl"); }
-    command -v lsd &>/dev/null && echo "${GREEN}✓${RESET} lsd" || { echo "${RED}✗${RESET} lsd (required)"; missing_deps+=("lsd"); }
-
+    # Check dependencies
+    command -v curl &>/dev/null || missing_deps+=("curl")
+    command -v lsd &>/dev/null  || missing_deps+=("lsd")
     if [[ ${#missing_deps[@]} -gt 0 ]]; then
-        echo
         echo "${RED}Missing dependencies:${RESET} ${missing_deps[*]}"
-        echo "Please install them and re-run the installer."
         exit 1
     fi
 
-    echo
-
+    # Download
     local tmpfile
     tmpfile=$(mktemp)
-    if ! curl -fsSL -H "Cache-Control: no-cache" "$NV_URL" -o "$tmpfile"; then
-        echo "${RED}Download failed${RESET}"
+    if ! curl -fsSL -H "Cache-Control: no-cache" "$NV_URL" -o "$tmpfile" || \
+       ! grep -q "$REPO" "$tmpfile"; then
+        echo "${RED}Download failed or corrupted${RESET}"
         rm -f "$tmpfile"
         exit 1
     fi
 
-    if [[ ! -s "$tmpfile" ]] || ! grep -q "github.com/gabrielmsilva00/nv" "$tmpfile"; then
-        echo "${RED}Download invalid or corrupted${RESET}"
-        rm -f "$tmpfile"
+    # Install
+    local install_cmd=("mv" "$tmpfile" "$install_dir/nv")
+    [[ "$need_sudo" == true ]] && install_cmd=("sudo" "cp" "$tmpfile" "$install_dir/nv")
+    
+    if ! mkdir -p "$install_dir" 2>/dev/null || \
+       ! "${install_cmd[@]}" 2>/dev/null || \
+       ! chmod +x "$install_dir/nv" 2>/dev/null; then
+        echo "${RED}✗ Installation failed${RESET}. Try running with sudo or check permissions."
+        rm -f "$tmpfile" 2>/dev/null
         exit 1
     fi
-
-    local install_success=false
-
-    if [[ "$need_sudo" == true ]]; then
-        echo "${WHITE}→${RESET} Attempting install with sudo..."
-        if sudo mkdir -p "$install_dir" 2>/dev/null && \
-           sudo cp "$tmpfile" "$install_dir/nv" 2>/dev/null && \
-           sudo chmod +x "$install_dir/nv" 2>/dev/null; then
-            install_success=true
-        else
-            echo "${YELLOW}⚠${RESET} Sudo failed, trying without sudo..."
-            need_sudo=false
-        fi
-    fi
-
-    if [[ "$install_success" == false ]]; then
-        if mkdir -p "$install_dir" 2>/dev/null && \
-           mv "$tmpfile" "$install_dir/nv" 2>/dev/null && \
-           chmod +x "$install_dir/nv" 2>/dev/null; then
-            install_success=true
-        fi
-    fi
-
+    
     rm -f "$tmpfile" 2>/dev/null
-
-    if [[ "$install_success" == false ]]; then
-        echo "${RED}✗ Installation failed${RESET}"
-        echo "  Could not write to: $install_dir"
-        echo "  Try: nv --self-install --local"
-        exit 1
-    fi
-
     echo "${GREEN}✓${RESET} nv v${VERSION} installed to $install_dir/nv"
-
-    if [[ ":$PATH:" != *":$install_dir:"* ]]; then
-        echo "${YELLOW}⚠${RESET} Note: $install_dir is not currently in your PATH."
-    fi
-
+    [[ ":$PATH:" != *":$install_dir:"* ]] && echo "${YELLOW}⚠${RESET} $install_dir is not in your PATH."
     echo -e "\n${GREEN}Done!${RESET} Run: nv"
-    exit 0
 }
 
 perform_self_upgrade() {
     echo "Checking for updates..."
     local tmpfile
     tmpfile=$(mktemp)
-    if ! curl -fsSL -H "Cache-Control: no-cache" "$NV_URL" -o "$tmpfile"; then
+    if ! curl -fsSL -H "Cache-Control: no-cache" "$NV_URL" -o "$tmpfile" || \
+       ! grep -q "$REPO" "$tmpfile"; then
         echo "${RED}Download failed${RESET}"
         rm -f "$tmpfile"
         exit 1
     fi
 
-    if [[ ! -s "$tmpfile" ]] || ! grep -q "github.com/gabrielmsilva00/nv" "$tmpfile"; then
-        echo "${RED}Download invalid or corrupted${RESET}"
-        rm -f "$tmpfile"
-        exit 1
-    fi
-
     local new_ver
-    new_ver=$(grep "^VERSION=" "$tmpfile" | head -n 1 | cut -d'"' -f2)
-    
+    new_ver=$(grep "^VERSION=" "$tmpfile" | cut -d'"' -f2)
     if [[ "$new_ver" == "$VERSION" ]]; then
-         echo "You are already on the latest version v${VERSION}."
+         echo "Already on the latest version v${VERSION}."
          rm -f "$tmpfile"
          exit 0
     fi
@@ -183,12 +121,8 @@ perform_self_upgrade() {
     local install_arg="--local"
     local current_loc
     current_loc=$(command -v nv 2>/dev/null)
-    
-    if [[ "$current_loc" == "/usr/local/bin/nv" ]]; then
-        install_arg="--usr"
-    elif [[ "$current_loc" == "/root/.local/bin/nv" ]]; then
-        install_arg="--root"
-    fi
+    [[ "$current_loc" == "/usr/local/bin/nv" ]] && install_arg="--usr"
+    [[ "$current_loc" == "/root/.local/bin/nv" ]] && install_arg="--root"
     
     chmod +x "$tmpfile"
     "$tmpfile" --self-install "$install_arg"
@@ -197,185 +131,136 @@ perform_self_upgrade() {
     exit $ret
 }
 
-# Check for install flags
-if [[ "$1" == "--self-install" ]]; then
-    self_install "${@:2}"
-    exit 0
-fi
+# --- Core Logic ---
 
-if [[ "$1" == "--self-upgrade" ]]; then
-    perform_self_upgrade
-    exit 0
-fi
+safe_print() {
+    local prefix="$1"
+    local content="$2"
+    local clean_c="$3"
+    local cols="${4:-80}"
+
+    local clean_p="${prefix//$'\e'\[[0-9;]*[mK]/}"
+    [[ -z "$clean_c" ]] && clean_c="${content//$'\e'\[[0-9;]*[mK]/}"
+
+    # Fast path: print if it fits
+    if (( ${#clean_p} + ${#clean_c} <= cols )); then
+        echo "${prefix}${content}"
+        return
+    fi
+    
+    local avail=$(( cols - ${#clean_p} - 3 ))
+    (( avail < 1 )) && avail=1
+    
+    # Truncate end, keep start
+    local truncated_clean="${clean_c:0:$avail}"
+    local color_code=""
+    if [[ "$content" =~ ($'\e'\[[0-9;]*m) ]]; then
+        color_code="${BASH_REMATCH[1]}"
+    fi
+    
+    echo "${prefix}${color_code}${truncated_clean}...${RESET}"
+}
 
 run_nv() {
     local dot=0 full=0 depth=2 args=()
     
-    usage() {
-        echo "Usage: nv [options] [directory]"
-        echo "Options:"
-        echo "  -h,  --help      Display this help message"
-        echo "  -dt, --dotfiles  Include hidden files"
-        echo "  -f,  --full      Disable all item capping"
-        echo "  -t,  --depth N   Set tree recursion depth (Default: 2)"
-        echo "  --self-upgrade   Fetch and install the latest version"
-        echo "  --self-install   Install nv (used by curl installer)"
-        return 0
-    }
-
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            -h|--help) usage; return 0 ;;
-            -dt|--dotfiles) dot=1; shift ;;
-            -f|--full) full=1; shift ;;
-            -t|--depth) 
-                if [[ "$2" =~ ^[0-9]+$ ]]; then
-                    depth=$2; shift
-                fi
-                shift 
-                ;;
-            *) args+=("$1"); shift ;;
+            -h|--help)
+                echo "Usage: nv [options] [directory]"
+                echo "  -dt, --dotfiles  Include hidden files"
+                echo "  -f,  --full      Disable item capping"
+                echo "  -t,  --depth N   Set recursion depth (Default: 2)"
+                echo "  --self-upgrade   Update nv"
+                exit 0 ;;
+            -dt|--dotfiles) dot=1 ;;
+            -f|--full) full=1 ;;
+            -t|--depth) [[ "$2" =~ ^[0-9]+$ ]] && { depth=$2; shift; } ;;
+            *) args+=("$1") ;;
         esac
+        shift
     done
     
-    if [[ ${#args[@]} -gt 0 ]]; then
-        cd "${args[@]}" || return
-    fi
+    [[ ${#args[@]} -gt 0 ]] && cd "${args[@]}" || return
     
-    
-    # Calculate columns once
+    # Terminal width calculation
     local cols
     cols=$(tput cols 2>/dev/null) || cols=80
-    
-    local cmd=("lsd" "--group-directories-first" "--color=always" "--icon=always")
-    # Safety margin
     (( cols > 2 )) && cols=$(( cols - 2 ))
     
-    # Batch lsd execution
+    # Prepare lsd command
+    local cmd=("lsd" "--group-directories-first" "--color=always" "--icon=always")
     local lsd_opts=("${cmd[@]}" "-1")
     [[ $dot -eq 1 ]] && lsd_opts+=("-A")
-    
-    local lines_formatted=()
-    local lines_plain=()
-    
-    # Read formatted and plain lines into arrays
-    # We use process substitution with mapfile (readarray) for speed
+
+    # Fetch main directory entries
+    local lines_formatted=() lines_plain=() lines_stripped=()
     mapfile -t lines_formatted < <("${lsd_opts[@]}" --color=always --icon=always)
     mapfile -t lines_plain < <("${lsd_opts[@]}" --color=never --icon=never)
-    
-    # Pre-calculate stripped lines for length calculations (performance)
-    # Use sed to strip ANSI codes from the whole batch at once
-    local esc
-    esc=$(printf '\033')
-    local lines_stripped=()
-    mapfile -t lines_stripped < <(printf "%s\n" "${lines_formatted[@]}" | sed "s/${esc}\[[0-9;]*[mK]//g")
+    mapfile -t lines_stripped < <(printf "%s\n" "${lines_formatted[@]}" | sed "s/${ESC}\[[0-9;]*[mK]//g")
     
     local m_count=${#lines_plain[@]}
-    
-    # Proportional sub-entry limit: S = clamp(12 - M/2, 2, 10)
     local s_lim=$(( 12 - (m_count / 2) ))
     (( s_lim < 2 )) && s_lim=2
     (( s_lim > 10 )) && s_lim=10
     
-    (( s_lim > 10 )) && s_lim=10
-
-    # Helper function to print lines safely with truncation
-    safe_print() {
-        local prefix="$1"
-        local content="$2"
-        local clean_c="$3"
-        # Uses 'cols' from outer scope
-        
-        # Calculate clean prefix length once (it's short, bash is fast enough)
-        local clean_p="${prefix//$'\e'\[[0-9;]*[mK]/}"
-        
-        # Use passed clean_c for content length (avoiding expensive strip here)
-        # Fallback if not passed (though it should be)
-        [[ -z "$clean_c" ]] && clean_c="${content//$'\e'\[[0-9;]*[mK]/}"
-
-        if (( ${#clean_p} + ${#clean_c} <= cols )); then
-            echo "${prefix}${content}"
-            return
-        fi
-        
-        local avail=$(( cols - ${#clean_p} - 3 )) # leave room for ...
-        (( avail < 1 )) && avail=1
-        
-        # Truncate at the end (keep beginning)
-        local truncated_clean="${clean_c:0:$avail}"
-        
-        # Try to extract the first color code to apply to the text
-        local color_code=""
-        if [[ "$content" =~ ($'\e'\[[0-9;]*m) ]]; then
-            color_code="${BASH_REMATCH[1]}"
-        fi
-        
-        echo "${prefix}${color_code}${truncated_clean}...${RESET}"
-    }
-    
-    # Root: user basename
-    # For root, we just calculate on the fly (one call)
-    safe_print "" "$("${cmd[@]}" -d "../$(basename "$PWD")")"
+    # Print Root
+    safe_print "" "$("${cmd[@]}" -d "../$(basename "$PWD")")" "" "$cols"
     
     if [[ $full -eq 1 ]]; then
         "${cmd[@]}" --tree --depth "$depth" | sed '1d'
         return
     fi
     
-    # Level 1 iteration
+    # Iterate and print tree
     for ((i=0; i<m_count; i++)); do
         local entry="${lines_plain[$i]}"
-        local entry_formatted="${lines_formatted[$i]}"
-        local entry_stripped="${lines_stripped[$i]}"
-        local is_last_main=0; [[ $i -eq $((m_count - 1)) ]] && is_last_main=1
+        local entry_fmt="${lines_formatted[$i]}"
+        local entry_str="${lines_stripped[$i]}"
+        local is_last=0
+        [[ $i -eq $((m_count - 1)) ]] && is_last=1
         
-        local connector="├── "
-        local sub_prefix="│   "
-        [[ $is_last_main -eq 1 ]] && { connector="└── "; sub_prefix="    "; }
+        local connector="├── " sub_prefix="│   "
+        [[ $is_last -eq 1 ]] && { connector="└── "; sub_prefix="    "; }
         
         if [[ -d "$entry" ]]; then
-            safe_print "$connector" "$entry_formatted" "$entry_stripped"
+            safe_print "$connector" "$entry_fmt" "$entry_str" "$cols"
             
-            # Level 2+: Proportionally capped sub-entries
-            # Batch fetch sub-entries
-            local sub_formatted=()
-            local sub_stripped=()
-            
-            # We need to determine how many to fetch. 
-            # We can't know total count without listing, but we can list with a limit.
-            # However, to know if we need "..." at the end (total count > s_lim), we need at least s_lim + 1 items.
+            # Sub-entry batching
+            local sub_fmt=() sub_str=()
             local limit=$((s_lim + 1))
             
-            mapfile -t sub_formatted < <("${lsd_opts[@]}" --color=always --icon=always "$entry" | head -n "$limit")
-            mapfile -t sub_stripped < <(printf "%s\n" "${sub_formatted[@]}" | sed "s/${esc}\[[0-9;]*[mK]//g")
+            mapfile -t sub_fmt < <("${lsd_opts[@]}" --color=always --icon=always "$entry" | head -n "$limit")
+            mapfile -t sub_str < <(printf "%s\n" "${sub_fmt[@]}" | sed "s/${ESC}\[[0-9;]*[mK]//g")
             
-            local s_count=${#sub_formatted[@]}
-            
-            if (( s_count > 0 )); then
-                local display_count=$s_lim
-                (( s_count < s_lim )) && display_count=$s_count
+            local s_cnt=${#sub_fmt[@]}
+            if (( s_cnt > 0 )); then
+                local disp_cnt=$s_lim
+                (( s_cnt < s_lim )) && disp_cnt=$s_cnt
                 
-                for ((j=0; j<display_count; j++)); do
+                for ((j=0; j<disp_cnt; j++)); do
                     local sub_conn="├── "
-                    if [[ $j -eq $((display_count - 1)) && $s_count -le $s_lim ]]; then
-                        sub_conn="└── "
-                    fi
-                    safe_print "$sub_prefix$sub_conn" "${sub_formatted[$j]}" "${sub_stripped[$j]}"
+                    [[ $j -eq $((disp_cnt - 1)) && $s_cnt -le $s_lim ]] && sub_conn="└── "
+                    safe_print "$sub_prefix$sub_conn" "${sub_fmt[$j]}" "${sub_str[$j]}" "$cols"
                 done
-                (( s_count > s_lim )) && echo "${sub_prefix}└── ..."
+                (( s_cnt > s_lim )) && echo "${sub_prefix}└── ..."
             fi
         else
-            safe_print "$connector" "$entry_formatted" "$entry_stripped"
+            safe_print "$connector" "$entry_fmt" "$entry_str" "$cols"
         fi
     done
 }
 
-# Main Execution Logic
-(return 0 2>/dev/null) && sourced=1 || sourced=0
+# --- Main Entry Point ---
 
+case "$1" in
+    --self-install) self_install "${@:2}"; exit 0 ;;
+    --self-upgrade) perform_self_upgrade; exit 0 ;;
+esac
+
+(return 0 2>/dev/null) && sourced=1 || sourced=0
 if [ "$sourced" -eq 1 ]; then
     run_nv "$@"
 else
-    # Run the core logic
     run_nv "$@"
 fi
