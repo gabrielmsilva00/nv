@@ -242,64 +242,79 @@ run_nv() {
         cd "${args[@]}" || return
     fi
     
-    # Get items in current dir
-    local items=()
-    shopt -s nullglob
-    [[ $dot -eq 1 ]] && shopt -s dotglob
-    items=( * )
-    shopt -u dotglob
-    shopt -u nullglob
     
-    local m_count=${#items[@]}
+    # Calculate columns once
+    local cols
+    cols=$(tput cols 2>/dev/null) || cols=80
+    
+    local cmd=("lsd" "--group-directories-first" "--color=always" "--icon=always")
+    # Safety margin
+    (( cols > 2 )) && cols=$(( cols - 2 ))
+    
+    # Batch lsd execution
+    local lsd_opts=("${cmd[@]}" "-1")
+    [[ $dot -eq 1 ]] && lsd_opts+=("-A")
+    
+    local lines_formatted=()
+    local lines_plain=()
+    
+    # Read formatted and plain lines into arrays
+    # We use process substitution with mapfile (readarray) for speed
+    mapfile -t lines_formatted < <("${lsd_opts[@]}" --color=always --icon=always)
+    mapfile -t lines_plain < <("${lsd_opts[@]}" --color=never --icon=never)
+    
+    # Pre-calculate stripped lines for length calculations (performance)
+    # Use sed to strip ANSI codes from the whole batch at once
+    local esc
+    esc=$(printf '\033')
+    local lines_stripped=()
+    mapfile -t lines_stripped < <(printf "%s\n" "${lines_formatted[@]}" | sed "s/${esc}\[[0-9;]*[mK]//g")
+    
+    local m_count=${#lines_plain[@]}
     
     # Proportional sub-entry limit: S = clamp(12 - M/2, 2, 10)
     local s_lim=$(( 12 - (m_count / 2) ))
     (( s_lim < 2 )) && s_lim=2
     (( s_lim > 10 )) && s_lim=10
     
-    local cmd=("lsd" "--group-directories-first" "--color=always" "--icon=always")
+    (( s_lim > 10 )) && s_lim=10
 
     # Helper function to print lines safely with truncation
     safe_print() {
         local prefix="$1"
         local content="$2"
-        local cols
-        cols=$(tput cols 2>/dev/null) || cols=80
+        local clean_c="$3"
+        # Uses 'cols' from outer scope
         
-        # Safety margin to prevent edge-case wrapping
-        (( cols > 2 )) && cols=$(( cols - 2 ))
+        # Calculate clean prefix length once (it's short, bash is fast enough)
+        local clean_p="${prefix//$'\e'\[[0-9;]*[mK]/}"
         
-        # Strip ANSI codes for length calculation
-        local clean_p
-        clean_p=$(echo "$prefix" | sed $'s/\x1b\\[[0-9;]*[mK]//g')
-        local clean_c
-        clean_c=$(echo "$content" | sed $'s/\x1b\\[[0-9;]*[mK]//g')
-        
-        local p_len=${#clean_p}
-        local c_len=${#clean_c}
-        
-        if (( p_len + c_len <= cols )); then
+        # Use passed clean_c for content length (avoiding expensive strip here)
+        # Fallback if not passed (though it should be)
+        [[ -z "$clean_c" ]] && clean_c="${content//$'\e'\[[0-9;]*[mK]/}"
+
+        if (( ${#clean_p} + ${#clean_c} <= cols )); then
             echo "${prefix}${content}"
             return
         fi
         
-        local avail=$(( cols - p_len - 3 ))
-        if (( avail < 2 )); then
-            echo "${prefix}..."
-            return
+        local avail=$(( cols - ${#clean_p} - 3 )) # leave room for ...
+        (( avail < 1 )) && avail=1
+        
+        # Truncate at the end (keep beginning)
+        local truncated_clean="${clean_c:0:$avail}"
+        
+        # Try to extract the first color code to apply to the text
+        local color_code=""
+        if [[ "$content" =~ ($'\e'\[[0-9;]*m) ]]; then
+            color_code="${BASH_REMATCH[1]}"
         fi
         
-        local start=$(( c_len - avail ))
-        local truncated="${clean_c:$start}"
-        
-        # Attempt to preserve the main color by capturing the first color code
-        local color_code
-        color_code=$(echo "$content" | grep -o $'\x1b\\[[0-9;]*m' | head -n 1)
-        
-        echo "${prefix}${color_code}...${truncated}$(tput sgr0 2>/dev/null)"
+        echo "${prefix}${color_code}${truncated_clean}...${RESET}"
     }
     
     # Root: user basename
+    # For root, we just calculate on the fly (one call)
     safe_print "" "$("${cmd[@]}" -d "../$(basename "$PWD")")"
     
     if [[ $full -eq 1 ]]; then
@@ -309,7 +324,9 @@ run_nv() {
     
     # Level 1 iteration
     for ((i=0; i<m_count; i++)); do
-        local entry="${items[$i]}"
+        local entry="${lines_plain[$i]}"
+        local entry_formatted="${lines_formatted[$i]}"
+        local entry_stripped="${lines_stripped[$i]}"
         local is_last_main=0; [[ $i -eq $((m_count - 1)) ]] && is_last_main=1
         
         local connector="├── "
@@ -317,19 +334,22 @@ run_nv() {
         [[ $is_last_main -eq 1 ]] && { connector="└── "; sub_prefix="    "; }
         
         if [[ -d "$entry" ]]; then
-            safe_print "$connector" "$("${cmd[@]}" -d -- "$entry")"
+            safe_print "$connector" "$entry_formatted" "$entry_stripped"
             
             # Level 2+: Proportionally capped sub-entries
-            local subs=()
-            shopt -s nullglob
-            [[ $dot -eq 1 ]] && shopt -s dotglob
-            subs=( "$entry"/* )
-            shopt -u dotglob
-            shopt -u nullglob
+            # Batch fetch sub-entries
+            local sub_formatted=()
+            local sub_stripped=()
             
-            # Limit subs to first (s_lim + 1) items
+            # We need to determine how many to fetch. 
+            # We can't know total count without listing, but we can list with a limit.
+            # However, to know if we need "..." at the end (total count > s_lim), we need at least s_lim + 1 items.
             local limit=$((s_lim + 1))
-            local s_count=${#subs[@]}
+            
+            mapfile -t sub_formatted < <("${lsd_opts[@]}" --color=always --icon=always "$entry" | head -n "$limit")
+            mapfile -t sub_stripped < <(printf "%s\n" "${sub_formatted[@]}" | sed "s/${esc}\[[0-9;]*[mK]//g")
+            
+            local s_count=${#sub_formatted[@]}
             
             if (( s_count > 0 )); then
                 local display_count=$s_lim
@@ -340,12 +360,12 @@ run_nv() {
                     if [[ $j -eq $((display_count - 1)) && $s_count -le $s_lim ]]; then
                         sub_conn="└── "
                     fi
-                    safe_print "$sub_prefix$sub_conn" "$("${cmd[@]}" -d -- "${subs[$j]}")"
+                    safe_print "$sub_prefix$sub_conn" "${sub_formatted[$j]}" "${sub_stripped[$j]}"
                 done
                 (( s_count > s_lim )) && echo "${sub_prefix}└── ..."
             fi
         else
-            safe_print "$connector" "$("${cmd[@]}" -d -- "$entry")"
+            safe_print "$connector" "$entry_formatted" "$entry_stripped"
         fi
     done
 }
