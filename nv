@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 # nv - File navigation wrapper for lsd (https://github.com/gabrielmsilva00/nv)
-VERSION="0.1.6"
+VERSION="0.1.7"
 REPO="gabrielmsilva00/nv"
 MAINTAINERS=("Gabriel Silva (@gabrielmsilva00)")
 NV_URL="https://raw.githubusercontent.com/${REPO}/main/nv"
 
-# --- Colors & formatting ---
 BOLD=$(tput bold 2>/dev/null) || BOLD=""
 RESET=$(tput sgr0 2>/dev/null) || RESET=""
 RED=$(tput setaf 1 2>/dev/null) || RED=""
@@ -15,40 +14,24 @@ BLUE=$(tput setaf 4 2>/dev/null) || BLUE=""
 WHITE=$(tput setaf 7 2>/dev/null) || WHITE=""
 ESC=$(printf '\033')
 
-# --- Helper Functions ---
-
 get_wrapper_str() {
     local type="$1"
     local nv_path="$2"
-    
     case "$type" in
-        fish) 
-            printf '\n# nv navigation wrapper\nfunction nv\n    set -l tmp (mktemp)\n    set -x NV_DEST_FILE "$tmp"\n    "%s" $argv\n    if test -f "$tmp"\n        if test -s "$tmp"\n            set -l dir (cat "$tmp")\n            test -d "$dir" && cd "$dir"\n        end\n        rm -f "$tmp"\n    end\nend' "$nv_path"
-            ;;
+        fish) printf '\n# nv navigation wrapper\nfunction nv\n    set -l tmp (mktemp)\n    set -x NV_DEST_FILE "$tmp"\n    "%s" $argv\n    if test -f "$tmp"\n        if test -s "$tmp"\n            set -l dir (cat "$tmp")\n            test -d "$dir" && cd "$dir"\n        end\n        rm -f "$tmp"\n    end\nend' "$nv_path" ;;
         csh)  printf '\n# nv navigation wrapper\nalias nv "source %s"' "$nv_path" ;;
         nu)   printf '\n# nv navigation wrapper\ndef --env nv [path: string = "."] { ^"%s" $path }' "$nv_path" ;;
-        alias|*)
-            printf '\n# nv navigation wrapper\nnv() {\n    local tmp\n    tmp=$(mktemp)\n    NV_DEST_FILE="$tmp" "%s" "$@"\n    local ret=$?\n    if [ -f "$tmp" ]; then\n        if [ -s "$tmp" ]; then\n            local dir\n            dir=$(cat "$tmp")\n            [ -d "$dir" ] && [ "$dir" != "$PWD" ] && cd "$dir"\n        fi\n        rm -f "$tmp"\n    fi\n    return $ret\n}' "$nv_path"
-            ;;
+        alias|*) printf '\n# nv navigation wrapper\nnv() {\n    local tmp\n    tmp=$(mktemp)\n    NV_DEST_FILE="$tmp" "%s" "$@"\n    local ret=$?\n    if [ -f "$tmp" ]; then\n        if [ -s "$tmp" ]; then\n            local dir\n            dir=$(cat "$tmp")\n            [ -d "$dir" ] && [ "$dir" != "$PWD" ] && cd "$dir"\n        fi\n        rm -f "$tmp"\n    fi\n    return $ret\n}' "$nv_path" ;;
     esac
 }
 
 detect_shell_type_from_file() {
     local f="$1"
-    if [[ "$f" == *".fish" ]]; then echo "fish";
-    elif [[ "$f" == *".nu" ]]; then echo "nu";
-    elif [[ "$f" == *".cshrc" || "$f" == *".tcshrc" ]]; then echo "csh";
-    else echo "alias"; fi
+    if [[ "$f" == *".fish" ]]; then echo "fish"; elif [[ "$f" == *".nu" ]]; then echo "nu"; elif [[ "$f" == *".cshrc" || "$f" == *".tcshrc" ]]; then echo "csh"; else echo "alias"; fi
 }
 
-# --- Installer Functions ---
-
 self_install() {
-    local install_mode="local"
-    local need_sudo=false
-    local install_dir="$HOME/.local/bin"
-    local missing_deps=()
-
+    local install_mode="local" need_sudo=false install_dir="$HOME/.local/bin" missing_deps=()
     for arg in "$@"; do
         case "$arg" in
             --root)  install_mode="root"; install_dir="/root/.local/bin"; need_sudo=true ;;
@@ -56,263 +39,93 @@ self_install() {
             --local) install_mode="local"; install_dir="$HOME/.local/bin"; need_sudo=false ;;
         esac
     done
-
-    echo "${BOLD}${BLUE}nv installer${RESET}"
-    echo "Target:  $install_dir"
-    
-    # Check dependencies
-    command -v curl &>/dev/null || missing_deps+=("curl")
-    command -v lsd &>/dev/null  || missing_deps+=("lsd")
+    echo "${BOLD}${BLUE}nv installer${RESET}"; echo "Target:  $install_dir"
+    command -v curl &>/dev/null || missing_deps+=("curl"); command -v lsd &>/dev/null  || missing_deps+=("lsd")
     [[ ${#missing_deps[@]} -gt 0 ]] && { echo "${RED}Missing dependencies:${RESET} ${missing_deps[*]}"; exit 1; }
-
-    # Download
-    local tmpfile
-    tmpfile=$(mktemp)
-    if ! curl -fsSL -H "Cache-Control: no-cache" "$NV_URL" -o "$tmpfile" || \
-       ! grep -q "$REPO" "$tmpfile"; then
-        echo "${RED}Download failed${RESET}"
-        rm -f "$tmpfile"
-        exit 1
-    fi
-
-    # Install
+    local tmpfile; tmpfile=$(mktemp)
+    if ! curl -fsSL -H "Cache-Control: no-cache" "$NV_URL" -o "$tmpfile" || ! grep -q "$REPO" "$tmpfile"; then echo "${RED}Download failed${RESET}"; rm -f "$tmpfile"; exit 1; fi
     local install_cmd=("mv" "$tmpfile" "$install_dir/nv")
     [[ "$need_sudo" == true ]] && install_cmd=("sudo" "cp" "$tmpfile" "$install_dir/nv")
-    
     mkdir -p "$install_dir" 2>/dev/null
-    if ! "${install_cmd[@]}" 2>/dev/null || ! chmod +x "$install_dir/nv" 2>/dev/null; then
-        echo "${RED}✗ Installation failed${RESET}."
-        rm -f "$tmpfile"
-        exit 1
-    fi
-    
-    rm -f "$tmpfile"
-    echo "${GREEN}✓${RESET} nv v${VERSION} installed"
-    
-    configure_shells "$install_dir/nv"
-    echo -e "\n${GREEN}Done!${RESET}"
+    if ! "${install_cmd[@]}" 2>/dev/null || ! chmod +x "$install_dir/nv" 2>/dev/null; then echo "${RED}✗ Installation failed${RESET}."; rm -f "$tmpfile"; exit 1; fi
+    rm -f "$tmpfile"; echo "${GREEN}✓${RESET} nv v${VERSION} installed"
+    configure_shells "$install_dir/nv"; echo -e "\n${GREEN}Done!${RESET}"
 }
 
 configure_shells() {
     local nv_path="$1"
-    local candidates=(
-        "Bash:$HOME/.bashrc:alias"
-        "Bash Profile:$HOME/.bash_profile:alias"
-        "Zsh:$HOME/.zshrc:alias"
-        "Fish:$HOME/.config/fish/config.fish:fish"
-        "Ksh:$HOME/.kshrc:alias"
-        "Tcsh:$HOME/.tcshrc:csh"
-        "Csh:$HOME/.cshrc:csh"
-        "Dash/Sh:$HOME/.profile:alias"
-        "Nushell:$HOME/.config/nushell/config.nu:nu"
-        "Nushell:$HOME/AppData/Roaming/nushell/config.nu:nu"
-    )
-
-    echo -e "\n${BOLD}${BLUE}Shell Configuration${RESET}"
-    local configured_count=0
-    
+    local candidates=("Bash:$HOME/.bashrc:alias" "Bash Profile:$HOME/.bash_profile:alias" "Zsh:$HOME/.zshrc:alias" "Fish:$HOME/.config/fish/config.fish:fish" "Ksh:$HOME/.kshrc:alias" "Tcsh:$HOME/.tcshrc:csh" "Csh:$HOME/.cshrc:csh" "Dash/Sh:$HOME/.profile:alias" "Nushell:$HOME/.config/nushell/config.nu:nu" "Nushell:$HOME/AppData/Roaming/nushell/config.nu:nu")
+    echo -e "\n${BOLD}${BLUE}Shell Configuration${RESET}"; local configured_count=0
     for item in "${candidates[@]}"; do
         IFS=':' read -r name path type <<< "$item"
         [[ ! -f "$path" ]] && continue
-        
-        local short_path="${path/$HOME/~}"
-        echo -n "  Found $name ($short_path): "
-        
-        if grep -q "# nv navigation wrapper" "$path" 2>/dev/null; then
-            echo "${YELLOW}Skipped (already configured)${RESET}"
-            continue
-        fi
-        
-        local config_str
-        config_str=$(get_wrapper_str "$type" "$nv_path")
-        
-        if echo "$config_str" >> "$path"; then
-            echo "${GREEN}Configured${RESET}"
-            ((configured_count++))
-        else
-            echo "${RED}Failed${RESET}"
-        fi
+        local short_path="${path/$HOME/~}"; echo -n "  Found $name ($short_path): "
+        if grep -q "# nv navigation wrapper" "$path" 2>/dev/null; then echo "${YELLOW}Skipped (already configured)${RESET}"; continue; fi
+        local config_str; config_str=$(get_wrapper_str "$type" "$nv_path")
+        if echo "$config_str" >> "$path"; then echo "${GREEN}Configured${RESET}"; ((configured_count++)); else echo "${RED}Failed${RESET}"; fi
     done
-    
-    if (( configured_count > 0 )); then
-        echo "${GREEN}Success!${RESET} Restart shell to apply."
-    else
-        echo "${YELLOW}No supported shell configs found.${RESET}"
-    fi
+    if (( configured_count > 0 )); then echo "${GREEN}Success!${RESET} Restart shell to apply."; else echo "${YELLOW}No supported shell configs found.${RESET}"; fi
 }
 
 self_alias() {
-    local target="$1"
-    local nv_path
-    nv_path=$(command -v nv 2>/dev/null)
-    [[ -z "$nv_path" ]] && nv_path="$0"
+    local target="$1" nv_path
+    nv_path=$(command -v nv 2>/dev/null); [[ -z "$nv_path" ]] && nv_path="$0"
     [[ ! -f "$nv_path" ]] && { echo "${RED}Error: Cannot locate nv binary.${RESET}"; exit 1; }
-    
     if [[ ! -f "$target" ]]; then
-        echo "${YELLOW}File '$target' does not exist. Create it? [y/N]${RESET} "
-        read -r -n 1 ans
-        echo
-        [[ ! "$ans" =~ ^[yY]$ ]] && exit 1
-        touch "$target"
+        echo "${YELLOW}File '$target' does not exist. Create it? [y/N]${RESET} "; read -r -n 1 ans; echo
+        [[ ! "$ans" =~ ^[yY]$ ]] && exit 1; touch "$target"
     fi
-    
-    if grep -q "# nv navigation wrapper" "$target"; then
-        echo "${YELLOW}Already configured in $target${RESET}"
-        return
-    fi
-    
-    local type
-    type=$(detect_shell_type_from_file "$target")
-    local config_str
-    config_str=$(get_wrapper_str "$type" "$(realpath "$nv_path")")
-    
-    if echo "$config_str" >> "$target"; then
-        echo "${GREEN}✓ Added alias to $target${RESET}"
-    else
-        echo "${RED}✗ Failed to write to $target${RESET}"
-        exit 1
-    fi
+    if grep -q "# nv navigation wrapper" "$target"; then echo "${YELLOW}Already configured in $target${RESET}"; return; fi
+    local type; type=$(detect_shell_type_from_file "$target"); local config_str; config_str=$(get_wrapper_str "$type" "$(realpath "$nv_path")")
+    if echo "$config_str" >> "$target"; then echo "${GREEN}✓ Added alias to $target${RESET}"; else echo "${RED}✗ Failed to write to $target${RESET}"; exit 1; fi
 }
 
 self_unalias() {
-    local candidates=(
-        "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.zshrc" 
-        "$HOME/.config/fish/config.fish" "$HOME/.kshrc" 
-        "$HOME/.tcshrc" "$HOME/.cshrc" "$HOME/.profile"
-        "$HOME/.config/nushell/config.nu" 
-        "$HOME/AppData/Roaming/nushell/config.nu"
-    )
-    
-    echo "${BOLD}${BLUE}Removing nv aliases...${RESET}"
-    local count=0
-    
+    local candidates=("$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.zshrc" "$HOME/.config/fish/config.fish" "$HOME/.kshrc" "$HOME/.tcshrc" "$HOME/.cshrc" "$HOME/.profile" "$HOME/.config/nushell/config.nu" "$HOME/AppData/Roaming/nushell/config.nu")
+    echo "${BOLD}${BLUE}Removing nv aliases...${RESET}"; local count=0
     for f in "${candidates[@]}"; do
         [[ ! -f "$f" ]] && continue
-        
         if grep -q "# nv navigation wrapper" "$f"; then
-             echo -n "  Cleaning $f... "
-             # Create temp file without the nv block
-             # We assume block starts with '# nv navigation wrapper'
-             # For simpler aliases it's 2 lines, for functions it is more.
-             # We will use a sed range delete that might be slightly aggressive but effective for our marker
-             # Delete from marker to '}' or 'end' or end of alias definition
-             # Actually, since we append, we can try to be specific.
-             
-             # Robust approach: Read file, skip lines inside our block
-             local tmp_rc
-             tmp_rc=$(mktemp)
-             local in_block=0
-             local block_type=""
-             
+             echo -n "  Cleaning $f... "; local tmp_rc; tmp_rc=$(mktemp); local in_block=0
              while IFS= read -r line || [[ -n "$line" ]]; do
-                 if [[ "$line" == "# nv navigation wrapper" ]]; then
-                     in_block=1
-                     # Peek/Guess type based on next lines would be better but complex in bash loop
-                     # We will filter out lines until we see end of block logic
-                     # Bash/Zsh: ends with '}'
-                     # Fish: ends with 'end'
-                     # Csh/Nu: single line or short block
-                     continue
-                 fi
-                 
+                 if [[ "$line" == "# nv navigation wrapper" ]]; then in_block=1; continue; fi
                  if [[ $in_block -eq 1 ]]; then
-                     # Check for end of block markers
-                     if [[ "$line" == "}" || "$line" == "end" ]]; then
-                         in_block=0
-                     # Csh/Nu/Alias define might be single subsequent line
-                     elif [[ "$line" == alias\ nv* || "$line" == def\ --env\ nv* ]]; then
-                         in_block=0
-                     fi
+                     if [[ "$line" == "}" || "$line" == "end" ]]; then in_block=0; elif [[ "$line" == alias\ nv* || "$line" == def\ --env\ nv* ]]; then in_block=0; fi
                      continue
                  fi
                  echo "$line" >> "$tmp_rc"
              done < "$f"
-             
-             if mv "$tmp_rc" "$f"; then
-                 echo "${GREEN}✓${RESET}"
-                 ((count++))
-             else
-                 echo "${RED}Failed${RESET}"
-                 rm -f "$tmp_rc"
-             fi
+             if mv "$tmp_rc" "$f"; then echo "${GREEN}✓${RESET}"; ((count++)); else echo "${RED}Failed${RESET}"; rm -f "$tmp_rc"; fi
         fi
     done
-    
     echo "Removed aliases from $count files."
 }
 
 self_uninstall() {
-    echo "${BOLD}${RED}Uninstalling nv...${RESET}"
-    
-    self_unalias
-    
-    local bin
-    bin=$(command -v nv)
+    echo "${BOLD}${RED}Uninstalling nv...${RESET}"; self_unalias
+    local bin; bin=$(command -v nv)
     if [[ -n "$bin" && -f "$bin" ]]; then
-        echo -n "Removing binary ($bin)... "
-        if rm -f "$bin"; then
-            echo "${GREEN}✓${RESET}"
-        else
-            # Try sudo
-             if sudo rm -f "$bin"; then
-                 echo "${GREEN}✓ (with sudo)${RESET}"
-             else
-                 echo "${RED}Failed${RESET}"
-             fi
-        fi
-    else
-        echo "${YELLOW}Binary not found in PATH.${RESET}"
-    fi
-    
+        echo -n "Removing binary ($bin)... "; if rm -f "$bin"; then echo "${GREEN}✓${RESET}"; else if sudo rm -f "$bin"; then echo "${GREEN}✓ (with sudo)${RESET}"; else echo "${RED}Failed${RESET}"; fi; fi
+    else echo "${YELLOW}Binary not found in PATH.${RESET}"; fi
     echo "${GREEN}Done.${RESET}"
 }
 
 perform_self_upgrade() {
-    echo "Checking for updates..."
-    local tmpfile
-    tmpfile=$(mktemp)
-    if ! curl -fsSL -H "Cache-Control: no-cache" "$NV_URL" -o "$tmpfile" || ! grep -q "$REPO" "$tmpfile"; then
-        echo "${RED}Download failed${RESET}"; rm -f "$tmpfile"; exit 1
-    fi
-
-    local new_ver
-    new_ver=$(grep "^VERSION=" "$tmpfile" | cut -d'"' -f2)
-    [[ "$new_ver" == "$VERSION" ]] && { echo "Already up to date (v$VERSION)."; rm -f "$tmpfile"; exit 0; }
-    
-    echo "Upgrading v$VERSION -> v$new_ver"
-    local install_arg="--local"
-    local loc=$(command -v nv)
-    [[ "$loc" == "/usr/local/bin/nv" ]] && install_arg="--usr"
-    [[ "$loc" == "/root/.local/bin/nv" ]] && install_arg="--root"
-    
-    bash "$tmpfile" --self-install "$install_arg"
-    rm -f "$tmpfile"
+    echo "Checking for updates..."; local tmpfile; tmpfile=$(mktemp)
+    if ! curl -fsSL -H "Cache-Control: no-cache" "$NV_URL" -o "$tmpfile" || ! grep -q "$REPO" "$tmpfile"; then echo "${RED}Download failed${RESET}"; rm -f "$tmpfile"; exit 1; fi
+    local new_ver; new_ver=$(grep "^VERSION=" "$tmpfile" | cut -d'"' -f2); [[ "$new_ver" == "$VERSION" ]] && { echo "Already up to date (v$VERSION)."; rm -f "$tmpfile"; exit 0; }
+    echo "Upgrading v$VERSION -> v$new_ver"; local install_arg="--local"; local loc=$(command -v nv)
+    [[ "$loc" == "/usr/local/bin/nv" ]] && install_arg="--usr"; [[ "$loc" == "/root/.local/bin/nv" ]] && install_arg="--root"
+    bash "$tmpfile" --self-install "$install_arg"; rm -f "$tmpfile"
 }
 
-# --- Core Logic ---
-
 safe_print() {
-    local prefix="$1"
-    local content="$2"
-    local clean_c="$3"
-    local cols="${4:-80}"
-
-    local clean_p="${prefix//$'\e'\[[0-9;]*[mK]/}"
-    [[ -z "$clean_c" ]] && clean_c="${content//$'\e'\[[0-9;]*[mK]/}"
-
-    if (( ${#clean_p} + ${#clean_c} <= cols )); then
-        echo "${prefix}${content}"
-        return
-    fi
-    
-    local avail=$(( cols - ${#clean_p} - 3 ))
-    (( avail < 1 )) && avail=1
-    
-    local truncated_clean="${clean_c:0:$avail}"
-    local color_code=""
-    local re=$'(\e\[[0-9;]*m)'
+    local prefix="$1" content="$2" clean_c="$3" cols="${4:-80}"
+    local clean_p="${prefix//$'\e'\[[0-9;]*[mK]/}"; [[ -z "$clean_c" ]] && clean_c="${content//$'\e'\[[0-9;]*[mK]/}"
+    if (( ${#clean_p} + ${#clean_c} <= cols )); then echo "${prefix}${content}"; return; fi
+    local avail=$(( cols - ${#clean_p} - 3 )); (( avail < 1 )) && avail=1
+    local truncated_clean="${clean_c:0:$avail}" color_code="" re=$'(\e\[[0-9;]*m)'
     [[ "$content" =~ $re ]] && color_code="${BASH_REMATCH[1]}"
-    
     echo "${prefix}${color_code}${truncated_clean}...${RESET}"
 }
 
@@ -320,95 +133,45 @@ run_nv() {
     local dot=0 full=0 depth=2 args=()
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            -h|--help)
-                echo "Usage: nv [options] [directory]"
-                echo "  -dt, --dotfiles  Include hidden files"
-                echo "  -f,  --full      Disable item capping"
-                echo "  -t,  --depth N   Set recursion depth"
-                echo "  --self-upgrade   Update nv"
-                echo "  --self-alias <f> Add alias to file"
-                echo "  --self-unalias   Remove aliases"
-                echo "  --self-uninstall Uninstall nv"
-                exit 0 ;;
-            -dt|--dotfiles) dot=1 ;;
-            -f|--full) full=1 ;;
-            -t|--depth) [[ "$2" =~ ^[0-9]+$ ]] && { depth=$2; shift; } ;;
-            *) args+=("$1") ;;
+            -h|--help) echo "Usage: nv [options] [directory]"; echo "  -dt, --dotfiles  Include hidden files"; echo "  -f,  --full      Disable item capping"; echo "  -t,  --depth N   Set recursion depth"; echo "  --self-upgrade   Update nv"; echo "  --self-alias <f> Add alias to file"; echo "  --self-unalias   Remove aliases"; echo "  --self-uninstall Uninstall nv"; exit 0 ;;
+            -dt|--dotfiles) dot=1 ;; -f|--full) full=1 ;; -t|--depth) [[ "$2" =~ ^[0-9]+$ ]] && { depth=$2; shift; } ;; *) args+=("$1") ;;
         esac
         shift
     done
-    
-    if [[ ${#args[@]} -gt 0 ]]; then
-        cd "${args[@]}" || return
-    fi
-    
-    local cols
-    cols=$(tput cols 2>/dev/null) || cols=80
-    (( cols > 2 )) && cols=$(( cols - 2 ))
-    
-    local cmd=("lsd" "--group-directories-first" "--color=always" "--icon=always")
-    local lsd_opts=("${cmd[@]}" "-1")
-    [[ $dot -eq 1 ]] && lsd_opts+=("-A")
-
+    if [[ ${#args[@]} -gt 0 ]]; then cd "${args[@]}" || return; fi
+    local cols; cols=$(tput cols 2>/dev/null) || cols=80; (( cols > 2 )) && cols=$(( cols - 2 ))
+    local cmd=("lsd" "--group-directories-first" "--color=always" "--icon=always"); local lsd_opts=("${cmd[@]}" "-1"); [[ $dot -eq 1 ]] && lsd_opts+=("-A")
     local lines_formatted=() lines_plain=() lines_stripped=()
     mapfile -t lines_formatted < <("${lsd_opts[@]}" --color=always --icon=always)
     mapfile -t lines_plain < <("${lsd_opts[@]}" --color=never --icon=never)
     mapfile -t lines_stripped < <(printf "%s\n" "${lines_formatted[@]}" | sed "s/${ESC}\[[0-9;]*[mK]//g")
-    
-    local m_count=${#lines_plain[@]}
-    local s_lim=$(( 12 - (m_count / 2) ))
-    (( s_lim < 2 )) && s_lim=2
-    (( s_lim > 10 )) && s_lim=10
-    
+    local m_count=${#lines_plain[@]}; local s_lim=$(( 12 - (m_count / 2) )); (( s_lim < 2 )) && s_lim=2; (( s_lim > 10 )) && s_lim=10
     safe_print "" "$("${cmd[@]}" -d "../$(basename "$PWD")")" "" "$cols"
-    
     [[ $full -eq 1 ]] && { "${cmd[@]}" --tree --depth "$depth" | sed '1d'; return; }
-    
     for ((i=0; i<m_count; i++)); do
-        local entry="${lines_plain[$i]}"
-        local entry_fmt="${lines_formatted[$i]}"
-        local entry_str="${lines_stripped[$i]}"
-        local is_last=0
+        local entry="${lines_plain[$i]}" entry_fmt="${lines_formatted[$i]}" entry_str="${lines_stripped[$i]}" is_last=0
         [[ $i -eq $((m_count - 1)) ]] && is_last=1
-        
-        local connector="├── " sub_prefix="│   "
-        [[ $is_last -eq 1 ]] && { connector="└── "; sub_prefix="    "; }
-        
+        local connector="├── " sub_prefix="│   "; [[ $is_last -eq 1 ]] && { connector="└── "; sub_prefix="    "; }
         if [[ -d "$entry" ]]; then
             safe_print "$connector" "$entry_fmt" "$entry_str" "$cols"
-            
-            local sub_fmt=() sub_str=()
-            local limit=$((s_lim + 1))
-            
+            local sub_fmt=() sub_str=() limit=$((s_lim + 1))
             mapfile -t sub_fmt < <("${lsd_opts[@]}" --color=always --icon=always "$entry" | head -n "$limit")
             mapfile -t sub_str < <(printf "%s\n" "${sub_fmt[@]}" | sed "s/${ESC}\[[0-9;]*[mK]//g")
-            
             local s_cnt=${#sub_fmt[@]}
             if (( s_cnt > 0 )); then
-                local disp_cnt=$s_lim
-                (( s_cnt < s_lim )) && disp_cnt=$s_cnt
-                
+                local disp_cnt=$s_lim; (( s_cnt < s_lim )) && disp_cnt=$s_cnt
                 for ((j=0; j<disp_cnt; j++)); do
-                    local sub_conn="├── "
-                    [[ $j -eq $((disp_cnt - 1)) && $s_cnt -le $s_lim ]] && sub_conn="└── "
+                    local sub_conn="├── "; [[ $j -eq $((disp_cnt - 1)) && $s_cnt -le $s_lim ]] && sub_conn="└── "
                     safe_print "$sub_prefix$sub_conn" "${sub_fmt[$j]}" "${sub_str[$j]}" "$cols"
                 done
                 (( s_cnt > s_lim )) && echo "${sub_prefix}└── ..."
             fi
-        else
-            safe_print "$connector" "$entry_fmt" "$entry_str" "$cols"
-        fi
+        else safe_print "$connector" "$entry_fmt" "$entry_str" "$cols"; fi
     done
-
     [[ -n "$NV_DEST_FILE" ]] && echo "$PWD" > "$NV_DEST_FILE"
 }
 
 case "$1" in
-    --self-install) self_install "${@:2}"; exit 0 ;;
-    --self-upgrade) perform_self_upgrade; exit 0 ;;
-    --self-alias)   self_alias "$2"; exit 0 ;;
-    --self-unalias) self_unalias; exit 0 ;;
-    --self-uninstall) self_uninstall; exit 0 ;;
+    --self-install) self_install "${@:2}"; exit 0 ;; --self-upgrade) perform_self_upgrade; exit 0 ;; --self-alias) self_alias "$2"; exit 0 ;; --self-unalias) self_unalias; exit 0 ;; --self-uninstall) self_uninstall; exit 0 ;;
 esac
-
 run_nv "$@"
