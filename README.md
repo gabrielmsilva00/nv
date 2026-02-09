@@ -48,7 +48,14 @@ nv
 | `-dt`, `--dotfiles` | Include hidden files (dotfiles) in the listing. |
 | `-f`, `--full` | Disable item capping and show the full tree. |
 | `-t`, `--depth N` | Set the tree recursion depth (Default: 2). |
-| `--self-upgrade` | Fetch and install the latest version of `nv`. |
+### Management Commands
+
+| Command | Description |
+|---------|-------------|
+| `--self-upgrade` | Update `nv` to the latest version. |
+| `--self-alias <file>` | Add the navigation alias to a specific RC file. |
+| `--self-unalias` | Remove `nv` aliases from all detected shell config files. |
+| `--self-uninstall` | Completely remove `nv` (binary and aliases). |
 
 ## Self-Upgrade
 
