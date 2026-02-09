@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# nv - File navigation wrapper for lsd (https://github.com/gabrielmsilva00/nv)
-VERSION="0.1.7"
+VERSION="0.1.8"
 REPO="gabrielmsilva00/nv"
 MAINTAINERS=("Gabriel Silva (@gabrielmsilva00)")
 NV_URL="https://raw.githubusercontent.com/${REPO}/main/nv"
