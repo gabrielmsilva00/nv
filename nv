@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # nv - File navigation wrapper for lsd (https://github.com/gabrielmsilva00/nv)
-VERSION="0.1.0"
+VERSION="0.1.1"
 REPO="gabrielmsilva00/nv"
 LICENSE="Apache-2.0"
 MAINTAINERS=("Gabriel Silva (@gabrielmsilva00)")
@@ -102,98 +102,132 @@ self_install() {
 
 configure_shells() {
     local nv_path="$1"
-    local shell_names=("Bash" "Zsh" "Fish" "Dash")
-    local shell_rcs=("$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.config/fish/config.fish" "$HOME/.profile")
-    local detected_indices=()
+    
+    # Define supported shells and their RC files
+    # Format: "Name:RC_Path:Type"
+    # Type: alias (standard alias), fish (function), nu (nushell alias), csh (csh alias)
+    local candidates=(
+        "Bash:$HOME/.bashrc:alias"
+        "Bash Profile:$HOME/.bash_profile:alias"
+        "Zsh:$HOME/.zshrc:alias"
+        "Fish:$HOME/.config/fish/config.fish:fish"
+        "Ksh:$HOME/.kshrc:alias"
+        "Tcsh:$HOME/.tcshrc:csh"
+        "Csh:$HOME/.cshrc:csh"
+        "Dash/Sh:$HOME/.profile:alias"
+        "Nushell:$HOME/.config/nushell/config.nu:nu"
+        "Nushell:$HOME/AppData/Roaming/nushell/config.nu:nu"
+    )
+
+    local available_indices=()
     local selected=()
-    
-    echo -e "\n${BOLD}${BLUE}Shell Configuration${RESET}"
-    echo "To use 'nv' for navigation (changing directories), you must add an alias/function to your shell."
-    echo "Examples:"
-    echo "  ${WHITE}Bash/Zsh:${RESET} alias nv=\"source $nv_path\""
-    echo "  ${WHITE}Fish:${RESET}     function nv; source \"$nv_path\" \$argv; end"
-    echo
-    echo "Which shells would you like to configure automatically?"
-    
-    # Detect shells
-    for i in "${!shell_rcs[@]}"; do
-        if [[ -f "${shell_rcs[$i]}" ]]; then
-            detected_indices+=("$i")
-            selected+=("true")  # Select valid shells by default
-        else
-            selected+=("false")
+    local display_names=()
+    local rc_paths=()
+    local types=()
+
+    # Detection Phase
+    for i in "${!candidates[@]}"; do
+        IFS=':' read -r name path type <<< "${candidates[$i]}"
+        if [[ -f "$path" ]]; then
+            available_indices+=("$i")
+            selected+=("true")
+            display_names+=("$name")
+            rc_paths+=("$path")
+            types+=("$type")
         fi
     done
-    
-    if [[ ${#detected_indices[@]} -eq 0 ]]; then
-        echo "${YELLOW}No common shell configuration files found.${RESET}"
+
+    if [[ ${#available_indices[@]} -eq 0 ]]; then
+        echo "${YELLOW}No supported shell configuration files found.${RESET}"
         return
     fi
+
+    # Interactive Phase
+    echo -e "\n${BOLD}${BLUE}Shell Configuration${RESET}"
+    echo "Nv needs to be aliased in your shell to enable navigation."
     
-    # Interaction Loop
     while true; do
         echo
-        for idx in "${detected_indices[@]}"; do
+        echo "${BOLD}Detected Shells:${RESET}"
+        for i in "${!available_indices[@]}"; do
+            local idx="${available_indices[$i]}"
             local mark=" "
-            [[ "${selected[$idx]}" == "true" ]] && mark="x"
-            echo "  [${mark}] $((idx+1))) ${shell_names[$idx]} (${shell_rcs[$idx]})"
+            [[ "${selected[$i]}" == "true" ]] && mark="${GREEN}✔${RESET}" || mark="${RED}✗${RESET}"
+            
+            # Shorten path for display
+            local short_path="${rc_paths[$i]/$HOME/~}"
+            printf "  [%b] %d) %-12s ${WHITE}%s${RESET}\n" "$mark" "$((i+1))" "${display_names[$i]}" "$short_path"
         done
+        
         echo
-        echo -n "Select shells to toggle (e.g. '1 2'), 'a' for all, or 'enter' to confirm: "
+        echo -n "${BOLD}Action [Y/n/select numbers]:${RESET} "
         read -r input
         
-        if [[ -z "$input" ]]; then
-            break 
-        elif [[ "$input" == "a" ]]; then
-            for idx in "${detected_indices[@]}"; do selected[$idx]="true"; done
+        input=$(echo "$input" | tr '[:upper:]' '[:lower:]')
+        
+        if [[ -z "$input" || "$input" == "y" || "$input" == "yes" ]]; then
+            break
+        elif [[ "$input" == "n" || "$input" == "no" ]]; then
+            echo "${YELLOW}Skipping shell configuration.${RESET}"
+            return
         else
-            for num in $input; do
-                if [[ "$num" =~ ^[0-9]+$ ]] && (( num >= 1 && num <= ${#shell_names[@]} )); then
-                    local real_idx=$((num-1))
-                    # Toggle logic
-                    if [[ "${selected[$real_idx]}" == "true" ]]; then
-                        selected[$real_idx]="false"
-                    else
-                        # Only toggle ON if file exists
-                         if [[ -f "${shell_rcs[$real_idx]}" ]]; then
-                            selected[$real_idx]="true"
-                         fi
+            # Toggle logic
+            for token in $input; do
+                if [[ "$token" =~ ^[0-9]+$ ]]; then
+                    # Check range
+                    local sel_idx=$((token-1))
+                    if (( sel_idx >= 0 && sel_idx < ${#available_indices[@]} )); then
+                        if [[ "${selected[$sel_idx]}" == "true" ]]; then
+                            selected[$sel_idx]="false"
+                        else
+                            selected[$sel_idx]="true"
+                        fi
                     fi
                 fi
             done
         fi
     done
-    
-    # Apply Configuration
-    local configured_any=false
-    for idx in "${!shell_rcs[@]}"; do
-        if [[ "${selected[$idx]}" == "true" ]]; then
-            local rc_file="${shell_rcs[$idx]}"
-            local shell_name="${shell_names[$idx]}"
+
+    # Application Phase
+    local configured_count=0
+    echo
+    for i in "${!available_indices[@]}"; do
+        if [[ "${selected[$i]}" == "true" ]]; then
+            local path="${rc_paths[$i]}"
+            local type="${types[$i]}"
+            local name="${display_names[$i]}"
             
-            echo -n "Configuring $shell_name... "
+            echo -n "Configuring $name... "
             
-            # Check if already configured
-            if grep -q "alias nv=" "$rc_file" 2>/dev/null || grep -q "function nv" "$rc_file" 2>/dev/null; then
-                 echo "${YELLOW}Skipped (already configured)${RESET}"
-                 continue
+            # Check for existing config
+            if grep -q "nv" "$path" 2>/dev/null && \
+               (grep -q "alias nv=" "$path" || grep -q "function nv" "$path" || grep -q "def nv" "$path"); then
+                echo "${YELLOW}Skipped (already configured)${RESET}"
+                continue
             fi
+
+            # Append config based on type
+            local config_str=""
+            case "$type" in
+                fish) config_str=$'\n# nv navigation wrapper\nfunction nv; source "'"$nv_path"'" $argv; end' ;;
+                csh)  config_str=$'\n# nv navigation wrapper\nalias nv "source '"$nv_path"'"' ;;
+                nu)   config_str=$'\n# nv navigation wrapper\ndef --env nv [path: string = "."] { source "'"$nv_path"'" $path }' ;;
+                *)    config_str=$'\n# nv navigation wrapper\nalias nv="source '"$nv_path"'"' ;;
+            esac
             
-            # Append configuration
-            if [[ "$shell_name" == "Fish" ]]; then
-                echo -e "\n# nv navigation wrapper\nfunction nv; source \"$nv_path\" \$argv; end" >> "$rc_file"
+            if echo "$config_str" >> "$path"; then
+                echo "${GREEN}✓${RESET}"
+                ((configured_count++))
             else
-                echo -e "\n# nv navigation wrapper\nalias nv=\"source $nv_path\"" >> "$rc_file"
+                echo "${RED}Failed${RESET}"
             fi
-            echo "${GREEN}✓${RESET}"
-            configured_any=true
         fi
     done
     
-    if [[ "$configured_any" == false ]]; then
-        echo
-        echo "${YELLOW}⚠ Warning: No shells configured.${RESET}"
-        echo "You will NOT be able to change directories with 'nv' unless you manually add the alias."
+    if (( configured_count > 0 )); then
+        echo -e "\n${GREEN}Success!${RESET} Restart your shell to apply changes."
+    elif [[ "${input}" != "n" ]]; then
+        echo -e "\n${YELLOW}No changes made.${RESET}"
     fi
 }
 
