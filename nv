@@ -130,33 +130,63 @@ safe_print() {
 }
 
 run_nv() {
-    local dot=0 full=0 depth=2 args=()
+    local dot=0 full=0 depth=2 reverse=0 sort_by="" args=()
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            -h|--help) echo "Usage: nv [options] [directory]"; echo "  -dt, --dotfiles  Include hidden files"; echo "  -f,  --full      Disable item capping"; echo "  -t,  --depth N   Set recursion depth"; echo "  --self-upgrade   Update nv"; echo "  --self-alias <f> Add alias to file"; echo "  --self-unalias   Remove aliases"; echo "  --self-uninstall Uninstall nv"; exit 0 ;;
-            -dt|--dotfiles) dot=1 ;; -f|--full) full=1 ;; -t|--depth) [[ "$2" =~ ^[0-9]+$ ]] && { depth=$2; shift; } ;; *) args+=("$1") ;;
+            -h|--help) 
+                echo "Usage: nv [options] [directory]"
+                echo "  -a, -dt, --dotfiles  Include hidden files"
+                echo "  -f, --full           Disable item capping"
+                echo "  -L, -t, --depth N    Set recursion depth"
+                echo "  -r, --reverse        Reverse sort order"
+                echo "  -S                   Sort by size"
+                echo "  -X                   Sort by extension"
+                echo "  --self-upgrade       Update nv"
+                exit 0 ;;
+            --version) echo "nv v$VERSION"; exit 0 ;;
+            -a|-dt|--dotfiles) dot=1 ;;
+            -f|--full) full=1 ;;
+            -L|-t|--depth) [[ "$2" =~ ^[0-9]+$ ]] && { depth=$2; shift; } ;;
+            -r|--reverse) reverse=1 ;;
+            -S) sort_by="size" ;;
+            -X) sort_by="extension" ;;
+            *) args+=("$1") ;;
         esac
         shift
     done
+
     if [[ ${#args[@]} -gt 0 ]]; then cd "${args[@]}" || return; fi
+
     local cols; cols=$(tput cols 2>/dev/null) || cols=80; (( cols > 2 )) && cols=$(( cols - 2 ))
-    local cmd=("lsd" "--group-directories-first" "--color=always" "--icon=always"); local lsd_opts=("${cmd[@]}" "-1"); [[ $dot -eq 1 ]] && lsd_opts+=("-A")
+    
+    local cmd=("lsd" "--group-directories-first" "--color=always" "--icon=always")
+    [[ $reverse -eq 1 ]] && cmd+=("--reverse")
+    [[ -n "$sort_by" ]] && cmd+=("--sort" "$sort_by")
+    
+    local lsd_opts=("${cmd[@]}" "-1"); [[ $dot -eq 1 ]] && lsd_opts+=("-A")
+
     local lines_formatted=() lines_plain=() lines_stripped=()
     mapfile -t lines_formatted < <("${lsd_opts[@]}" --color=always --icon=always)
     mapfile -t lines_plain < <("${lsd_opts[@]}" --color=never --icon=never)
     mapfile -t lines_stripped < <(printf "%s\n" "${lines_formatted[@]}" | sed "s/${ESC}\[[0-9;]*[mK]//g")
+
     local m_count=${#lines_plain[@]}; local s_lim=$(( 12 - (m_count / 2) )); (( s_lim < 2 )) && s_lim=2; (( s_lim > 10 )) && s_lim=10
+    
     safe_print "" "$("${cmd[@]}" -d "../$(basename "$PWD")")" "" "$cols"
+    
     [[ $full -eq 1 ]] && { "${cmd[@]}" --tree --depth "$depth" | sed '1d'; return; }
+    
     for ((i=0; i<m_count; i++)); do
         local entry="${lines_plain[$i]}" entry_fmt="${lines_formatted[$i]}" entry_str="${lines_stripped[$i]}" is_last=0
         [[ $i -eq $((m_count - 1)) ]] && is_last=1
         local connector="├── " sub_prefix="│   "; [[ $is_last -eq 1 ]] && { connector="└── "; sub_prefix="    "; }
+        
         if [[ -d "$entry" ]]; then
             safe_print "$connector" "$entry_fmt" "$entry_str" "$cols"
             local sub_fmt=() sub_str=() limit=$((s_lim + 1))
             mapfile -t sub_fmt < <("${lsd_opts[@]}" --color=always --icon=always "$entry" | head -n "$limit")
             mapfile -t sub_str < <(printf "%s\n" "${sub_fmt[@]}" | sed "s/${ESC}\[[0-9;]*[mK]//g")
+            
             local s_cnt=${#sub_fmt[@]}
             if (( s_cnt > 0 )); then
                 local disp_cnt=$s_lim; (( s_cnt < s_lim )) && disp_cnt=$s_cnt
@@ -166,7 +196,9 @@ run_nv() {
                 done
                 (( s_cnt > s_lim )) && echo "${sub_prefix}└── ..."
             fi
-        else safe_print "$connector" "$entry_fmt" "$entry_str" "$cols"; fi
+        else 
+            safe_print "$connector" "$entry_fmt" "$entry_str" "$cols"
+        fi
     done
     [[ -n "$NV_DEST_FILE" ]] && echo "$PWD" > "$NV_DEST_FILE"
 }

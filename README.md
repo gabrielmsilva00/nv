@@ -34,6 +34,8 @@ curl -fsSL https://raw.githubusercontent.com/gabrielmsilva00/nv/main/nv | bash -
 
 ## Usage
 
+After installing, restart your shell or run `source ~/.<shell>rc` (or the appropriate file for your shell) to apply the changes.
+
 Simply run `nv` in any directory:
 
 ```bash
@@ -45,9 +47,12 @@ nv
 | Flag | Description |
 |------|-------------|
 | `-h`, `--help` | Show help message. |
-| `-dt`, `--dotfiles` | Include hidden files (dotfiles) in the listing. |
+| `-a`, `-dt`, `--dotfiles` | Include hidden files (dotfiles) in the listing. |
 | `-f`, `--full` | Disable item capping and show the full tree. |
-| `-t`, `--depth N` | Set the tree recursion depth (Default: 2). |
+| `-L`, `-t`, `--depth N` | Set the tree recursion depth (Default: 2). |
+| `-r`, `--reverse` | Reverse sort order. |
+| `-S` | Sort results by size. |
+| `-X` | Sort results by extension. |
 ### Management Commands
 
 | Command | Description |
