@@ -53,13 +53,17 @@ self_install() {
 
 configure_shells() {
     local nv_path="$1"
+    # Force clean existing aliases first to ensure updates apply
+    self_unalias >/dev/null 2>&1
+    
     local candidates=("Bash:$HOME/.bashrc:alias" "Bash Profile:$HOME/.bash_profile:alias" "Zsh:$HOME/.zshrc:alias" "Fish:$HOME/.config/fish/config.fish:fish" "Ksh:$HOME/.kshrc:alias" "Tcsh:$HOME/.tcshrc:csh" "Csh:$HOME/.cshrc:csh" "Dash/Sh:$HOME/.profile:alias" "Nushell:$HOME/.config/nushell/config.nu:nu" "Nushell:$HOME/AppData/Roaming/nushell/config.nu:nu")
     echo -e "\n${BOLD}${BLUE}Shell Configuration${RESET}"; local configured_count=0
     for item in "${candidates[@]}"; do
         IFS=':' read -r name path type <<< "$item"
         [[ ! -f "$path" ]] && continue
         local short_path="${path/$HOME/~}"; echo -n "  Found $name ($short_path): "
-        if grep -q "# nv navigation wrapper" "$path" 2>/dev/null; then echo "${YELLOW}Skipped (already configured)${RESET}"; continue; fi
+        
+        # Always append fresh config (self_unalias cleared old ones)
         local config_str; config_str=$(get_wrapper_str "$type" "$nv_path")
         if echo "$config_str" >> "$path"; then echo "${GREEN}Configured${RESET}"; ((configured_count++)); else echo "${RED}Failed${RESET}"; fi
     done
