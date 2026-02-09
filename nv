@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # nv - File navigation wrapper for lsd (https://github.com/gabrielmsilva00/nv)
-VERSION="0.0.2"
+VERSION="0.0.3"
 REPO="gabrielmsilva00/nv"
 LICENSE="Apache-2.0"
 MAINTAINERS=("Gabriel Silva (@gabrielmsilva00)")
@@ -258,9 +258,49 @@ run_nv() {
     (( s_lim > 10 )) && s_lim=10
     
     local cmd=("lsd" "--group-directories-first" "--color=always" "--icon=always")
+
+    # Helper function to print lines safely with truncation
+    safe_print() {
+        local prefix="$1"
+        local content="$2"
+        local cols
+        cols=$(tput cols 2>/dev/null) || cols=80
+        
+        # Safety margin to prevent edge-case wrapping
+        (( cols > 2 )) && cols=$(( cols - 2 ))
+        
+        # Strip ANSI codes for length calculation
+        local clean_p
+        clean_p=$(echo "$prefix" | sed $'s/\x1b\\[[0-9;]*[mK]//g')
+        local clean_c
+        clean_c=$(echo "$content" | sed $'s/\x1b\\[[0-9;]*[mK]//g')
+        
+        local p_len=${#clean_p}
+        local c_len=${#clean_c}
+        
+        if (( p_len + c_len <= cols )); then
+            echo "${prefix}${content}"
+            return
+        fi
+        
+        local avail=$(( cols - p_len - 3 ))
+        if (( avail < 2 )); then
+            echo "${prefix}..."
+            return
+        fi
+        
+        local start=$(( c_len - avail ))
+        local truncated="${clean_c:$start}"
+        
+        # Attempt to preserve the main color by capturing the first color code
+        local color_code
+        color_code=$(echo "$content" | grep -o $'\x1b\\[[0-9;]*m' | head -n 1)
+        
+        echo "${prefix}${color_code}...${truncated}$(tput sgr0 2>/dev/null)"
+    }
     
     # Root: user basename
-    "${cmd[@]}" -d "../$(basename "$PWD")"
+    safe_print "" "$("${cmd[@]}" -d "../$(basename "$PWD")")"
     
     if [[ $full -eq 1 ]]; then
         "${cmd[@]}" --tree --depth "$depth" | sed '1d'
@@ -277,7 +317,7 @@ run_nv() {
         [[ $is_last_main -eq 1 ]] && { connector="└── "; sub_prefix="    "; }
         
         if [[ -d "$entry" ]]; then
-            "${cmd[@]}" -d -- "$entry" | sed "s/^/$connector/"
+            safe_print "$connector" "$("${cmd[@]}" -d -- "$entry")"
             
             # Level 2+: Proportionally capped sub-entries
             local subs=()
@@ -300,12 +340,13 @@ run_nv() {
                     if [[ $j -eq $((display_count - 1)) && $s_count -le $s_lim ]]; then
                         sub_conn="└── "
                     fi
-                    "${cmd[@]}" -d -- "${subs[$j]}" | sed "s/^/$sub_prefix$sub_conn/"
+                    safe_print "$sub_prefix$sub_conn" "$("${cmd[@]}" -d -- "${subs[$j]}")"
                 done
                 (( s_count > s_lim )) && echo "${sub_prefix}└── ..."
             fi
         else
-            "${cmd[@]}" -d -- "$entry" | sed "s/^/$connector/"
+        else
+            safe_print "$connector" "$("${cmd[@]}" -d -- "$entry")"
         fi
     done
 }
