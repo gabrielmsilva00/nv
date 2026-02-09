@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # nv - File navigation wrapper for lsd (https://github.com/gabrielmsilva00/nv)
-VERSION="0.1.3"
+VERSION="0.1.4"
 REPO="gabrielmsilva00/nv"
 LICENSE="Apache-2.0"
 MAINTAINERS=("Gabriel Silva (@gabrielmsilva00)")
@@ -105,7 +105,6 @@ configure_shells() {
     
     # Define supported shells and their RC files
     # Format: "Name:RC_Path:Type"
-    # Type: alias (standard alias), fish (function), nu (nushell alias), csh (csh alias)
     local candidates=(
         "Bash:$HOME/.bashrc:alias"
         "Bash Profile:$HOME/.bash_profile:alias"
@@ -119,124 +118,73 @@ configure_shells() {
         "Nushell:$HOME/AppData/Roaming/nushell/config.nu:nu"
     )
 
-    local available_indices=()
-    local selected=()
-    local display_names=()
-    local rc_paths=()
-    local types=()
+    echo -e "\n${BOLD}${BLUE}Shell Configuration${RESET}"
+    echo "Automatically configuring shells..."
 
-    # Detection Phase
+    local configured_count=0
+    local current_shell_rc=""
+
     for i in "${!candidates[@]}"; do
         IFS=':' read -r name path type <<< "${candidates[$i]}"
-        if [[ -f "$path" ]]; then
-            available_indices+=("$i")
-            selected+=("true")
-            display_names+=("$name")
-            rc_paths+=("$path")
-            types+=("$type")
+        
+        # Skip if file doesn't exist
+        [[ ! -f "$path" ]] && continue
+
+        # Shorten path for display
+        local short_path="${path/$HOME/~}"
+        echo -n "  Found $name ($short_path): "
+
+        # Check for existing config
+        if grep -q "nv" "$path" 2>/dev/null && \
+           (grep -q "alias nv=" "$path" || grep -q "function nv" "$path" || grep -q "def nv" "$path"); then
+            echo "${YELLOW}Skipped (already configured)${RESET}"
+            continue
         fi
-    done
 
-    if [[ ${#available_indices[@]} -eq 0 ]]; then
-        echo "${YELLOW}No supported shell configuration files found.${RESET}"
-        return
-    fi
-
-    # Interactive Phase
-    echo -e "\n${BOLD}${BLUE}Shell Configuration${RESET}"
-    echo "Nv needs to be aliased in your shell to enable navigation."
-    
-    while true; do
-        echo
-        echo "${BOLD}Detected Shells:${RESET}"
-        for i in "${!available_indices[@]}"; do
-            local idx="${available_indices[$i]}"
-            local mark=" "
-            [[ "${selected[$i]}" == "true" ]] && mark="${GREEN}✔${RESET}" || mark="${RED}✗${RESET}"
+        # Append config based on type
+        local config_str=""
+        case "$type" in
+            fish) 
+                config_str="$(printf '\n# nv navigation wrapper\nfunction nv\n    set -l tmp (mktemp)\n    set -x NV_DEST_FILE "$tmp"\n    "%s" $argv\n    if test -f "$tmp"\n        if test -s "$tmp"\n            set -l dir (cat "$tmp")\n            test -d "$dir" && cd "$dir"\n        end\n        rm -f "$tmp"\n    end\nend' "$nv_path")" 
+                ;;
+            csh)  config_str="$(printf '\n# nv navigation wrapper\nalias nv "source %s"' "$nv_path")" ;;
+            nu)   config_str="$(printf '\n# nv navigation wrapper\ndef --env nv [path: string = "."] { ^"%s" $path }' "$nv_path")" ;;
+            alias|*)
+                config_str="$(printf '\n# nv navigation wrapper\nnv() {\n    local tmp\n    tmp=$(mktemp)\n    NV_DEST_FILE="$tmp" "%s" "$@"\n    local ret=$?\n    if [ -f "$tmp" ]; then\n        if [ -s "$tmp" ]; then\n            local dir\n            dir=$(cat "$tmp")\n            [ -d "$dir" ] && [ "$dir" != "$PWD" ] && cd "$dir"\n        fi\n        rm -f "$tmp"\n    fi\n    return $ret\n}' "$nv_path")"
+                ;;
+        esac
+        
+        if echo "$config_str" >> "$path"; then
+            echo "${GREEN}Configured${RESET}"
+            ((configured_count++))
             
-            # Shorten path for display
-            local short_path="${rc_paths[$i]/$HOME/~}"
-            printf "  [%b] %d) %-12s ${WHITE}%s${RESET}\n" "$mark" "$((i+1))" "${display_names[$i]}" "$short_path"
-        done
-        
-        echo
-        echo -n "${BOLD}Action [Y/n/select numbers]:${RESET} "
-        read -r input
-        
-        input=$(echo "$input" | tr '[:upper:]' '[:lower:]')
-        
-        if [[ -z "$input" || "$input" == "y" || "$input" == "yes" ]]; then
-            break
-        elif [[ "$input" == "n" || "$input" == "no" ]]; then
-            echo "${YELLOW}Skipping shell configuration.${RESET}"
-            return
+            # Identify if this is the current shell's RC to attempt sourcing later
+            # Simple heuristic: matches $SHELL name
+            if [[ "$SHELL" == *"${name,,}"* ]] || [[ "$SHELL" == *"${name}"* ]]; then
+                 current_shell_rc="$path"
+            fi
         else
-            # Toggle logic
-            for token in $input; do
-                if [[ "$token" =~ ^[0-9]+$ ]]; then
-                    # Check range
-                    local sel_idx=$((token-1))
-                    if (( sel_idx >= 0 && sel_idx < ${#available_indices[@]} )); then
-                        if [[ "${selected[$sel_idx]}" == "true" ]]; then
-                            selected[$sel_idx]="false"
-                        else
-                            selected[$sel_idx]="true"
-                        fi
-                    fi
-                fi
-            done
-        fi
-    done
-
-    # Application Phase
-    local configured_count=0
-    echo
-    for i in "${!available_indices[@]}"; do
-        if [[ "${selected[$i]}" == "true" ]]; then
-            local path="${rc_paths[$i]}"
-            local type="${types[$i]}"
-            local name="${display_names[$i]}"
-            
-            echo -n "Configuring $name... "
-            
-            # Check for existing config
-            if grep -q "nv" "$path" 2>/dev/null && \
-               (grep -q "alias nv=" "$path" || grep -q "function nv" "$path" || grep -q "def nv" "$path"); then
-                echo "${YELLOW}Skipped (already configured)${RESET}"
-                continue
-            fi
-
-            # Append config based on type
-            local config_str=""
-            case "$type" in
-                fish) 
-                    config_str="$(printf '\n# nv navigation wrapper\nfunction nv\n    set -l tmp (mktemp)\n    set -x NV_DEST_FILE "$tmp"\n    "%s" $argv\n    if test -f "$tmp"\n        if test -s "$tmp"\n            set -l dir (cat "$tmp")\n            test -d "$dir" && cd "$dir"\n        end\n        rm -f "$tmp"\n    end\nend' "$nv_path")" 
-                    ;;
-                nu)
-                    # Nushell basic wrapper (requires more complex logic for full output, simplifying for now to just execution)
-                    # Note: Full navigation support in Nu requires parsing output or using specific nu-exec patterns.
-                    # Falling back to direct execution for now to avoid errors.
-                    config_str="$(printf '\n# nv navigation wrapper\ndef --env nv [path: string = "."] { ^"%s" $path }' "$nv_path")"
-                    ;;
-                alias|*)
-                    # Bash/Zsh/Sh function wrapper
-                    config_str="$(printf '\n# nv navigation wrapper\nnv() {\n    local tmp\n    tmp=$(mktemp)\n    NV_DEST_FILE="$tmp" "%s" "$@"\n    local ret=$?\n    if [ -f "$tmp" ]; then\n        if [ -s "$tmp" ]; then\n            local dir\n            dir=$(cat "$tmp")\n            [ -d "$dir" ] && [ "$dir" != "$PWD" ] && cd "$dir"\n        fi\n        rm -f "$tmp"\n    fi\n    return $ret\n}' "$nv_path")"
-                    ;;
-            esac
-            
-            if echo "$config_str" >> "$path"; then
-                echo "${GREEN}✓${RESET}"
-                ((configured_count++))
-            else
-                echo "${RED}Failed${RESET}"
-            fi
+            echo "${RED}Failed to write${RESET}"
         fi
     done
     
+    echo
     if (( configured_count > 0 )); then
-        echo -e "\n${GREEN}Success!${RESET} Restart your shell to apply changes."
-    elif [[ "${input}" != "n" ]]; then
-        echo -e "\n${YELLOW}No changes made.${RESET}"
+        echo "${GREEN}Success!${RESET} $configured_count shell(s) configured."
+        
+        # Attempt to source for the current session (Best Effort)
+        if [[ -n "$current_shell_rc" ]]; then
+            echo -n "Attempting to reload configuration for current shell... "
+            # We can't actually affect the parent process, but we can try 
+            # to be helpful if running inside a sourceable context or invoke a new shell
+            # For now, just warn because we cannot source into parent.
+            echo "${YELLOW}Skipped${RESET}"
+            echo "  (Note: Script cannot modify parent shell. Please run: ${BOLD}source $current_shell_rc${RESET})"
+        else
+            echo "Please restart your shell or source your rc file to enable navigation."
+        fi
+    else
+        echo "${YELLOW}No changes made or no supported shells found.${RESET}"
     fi
 }
 
