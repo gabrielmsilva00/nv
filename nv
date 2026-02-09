@@ -376,14 +376,6 @@ run_nv() {
 if [ "$sourced" -eq 1 ]; then
     run_nv "$@"
 else
-    # Capture start directory
-    start_dir="$PWD"
-    
     # Run the core logic
     run_nv "$@"
-    
-    # If the directory changed, spawn a new shell to inhibit the change
-    if [[ "$PWD" != "$start_dir" ]]; then
-        exec "${SHELL:-/bin/bash}"
-    fi
 fi
