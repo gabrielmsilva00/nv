@@ -2,7 +2,7 @@
 
 `nv` is a smart wrapper for [lsd](https://github.com/lsd-rs/lsd) and `cd` that provides a cleaner, more structured view of your directories. It automatically balances the density of information displayed by capping sub-entries based on the contents of the current folder, ensuring you get a quick overview without being overwhelmed.
 
-![Example of nv in action](example.webp)
+![Example of nv in action](./assets/example.webp)
 
 It allows you to simultaneously navigate and list files in a tree-view format as you move through directories.
 
