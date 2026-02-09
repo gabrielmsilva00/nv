@@ -1,6 +1,6 @@
-# nv - Enhanced File Navigation Wrapper for lsd
+# nv - Enhanced File Navigation for the Terminal
 
-`nv` is a smart wrapper for [lsd](https://github.com/lsd-rs/lsd) that provides a cleaner, more structured view of your directories. It automatically balances the density of information displayed by capping sub-entries based on the contents of the current folder, ensuring you get a quick overview without being overwhelmed.
+`nv` is a smart wrapper for [lsd](https://github.com/lsd-rs/lsd) and `cd` that provides a cleaner, more structured view of your directories. It automatically balances the density of information displayed by capping sub-entries based on the contents of the current folder, ensuring you get a quick overview without being overwhelmed.
 
 ## Features
 

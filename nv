@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # nv - File navigation wrapper for lsd (https://github.com/gabrielmsilva00/nv)
-VERSION="1.0.0"
+VERSION="0.0.1"
 REPO="gabrielmsilva00/nv"
 LICENSE="Apache-2.0"
 MAINTAINERS=("Gabriel Silva (@gabrielmsilva00)")
@@ -145,25 +145,13 @@ self_install() {
     echo "${GREEN}✓${RESET} nv v${VERSION} installed to $install_dir/nv"
 
     if [[ "$need_sudo" == false && ":$PATH:" != *":$install_dir:"* ]]; then
-        local shell_name shell_rc
-        shell_name=$(basename "$SHELL")
-        case "$shell_name" in
-            zsh)  shell_rc="$HOME/.zshrc" ;;
-            bash) shell_rc="$HOME/.bashrc" ;;
-            *)    shell_rc="$HOME/.profile" ;;
-        esac
-
-        local export_line="export PATH=\"\$PATH:$install_dir\""
-        if ! grep -qF "$install_dir" "$shell_rc" 2>/dev/null; then
-            echo "" >> "$shell_rc"
-            echo "# nv" >> "$shell_rc"
-            echo "$export_line" >> "$shell_rc"
-            echo "${GREEN}✓${RESET} Added to PATH in $shell_rc"
-            echo "${YELLOW}!${RESET} Run: source $shell_rc"
-        fi
+        echo "${YELLOW}⚠${RESET} $install_dir is not in your PATH."
+        echo "  Add it to your shell configuration file manually."
     fi
 
-    echo -e "\n${GREEN}Done!${RESET} Run: nv"
+    echo -e "\n${GREEN}Done!${RESET}"
+    echo "To enable persistent navigation, add this to your shell config:"
+    echo "  ${BLUE}eval \"\$(nv --init)\"${RESET}"
     exit 0
 }
 
@@ -235,12 +223,29 @@ run_nv() {
         echo "  -t,  --depth N   Set tree recursion depth (Default: 2)"
         echo "  --self-upgrade   Fetch and install the latest version"
         echo "  --self-install   Install nv (used by curl installer)"
+        echo "  --init           Print shell integration code"
         return 0
     }
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -h|--help) usage; return 0 ;;
+            --init)
+                echo 'nv() {'
+                echo '    local tmp=$(mktemp)'
+                echo '    NV_DST="$tmp" command nv "$@"'
+                echo '    local ret=$?'
+                echo '    if [ -f "$tmp" ]; then'
+                echo '        local dir=$(cat "$tmp")'
+                echo '        rm -f "$tmp"'
+                echo '        if [ -d "$dir" ] && [ "$dir" != "$PWD" ]; then'
+                echo '            builtin cd "$dir"'
+                echo '        fi'
+                echo '    fi'
+                echo '    return $ret'
+                echo '}'
+                return 0
+                ;;
             -dt|--dotfiles) dot=1; shift ;;
             -f|--full) full=1; shift ;;
             -t|--depth) 
@@ -256,6 +261,9 @@ run_nv() {
     if [[ ${#args[@]} -gt 0 ]]; then
         cd "${args[@]}" || return
     fi
+    
+    # Notify wrapper of directory change
+    [[ -n "$NV_DST" ]] && pwd > "$NV_DST"
     
     # Get items in current dir
     local items=()
